@@ -1,0 +1,54 @@
+name: Cache radio audio
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tracks.js"
+      - "accounting.js"
+      - ".github/workflows/cache-audio.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  cache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Download audio and rewrite sources
+        run: |
+          python - <<'PY'
+          import re, pathlib, urllib.request, hashlib, time
+          files=[pathlib.Path("tracks.js"), pathlib.Path("accounting.js")]
+          out=pathlib.Path("audio"); out.mkdir(exist_ok=True)
+          pat=re.compile(r'https://storage\.googleapis\.com/adm--audio-playback--7d--public/mcp-preview/[^"\\]+\.mp3')
+          changed=False
+          for p in files:
+              text=p.read_text()
+              urls=list(dict.fromkeys(pat.findall(text)))
+              for u in urls:
+                  name=hashlib.sha256(u.encode()).hexdigest()[:20]+".mp3"
+                  dest=out/name
+                  if not dest.exists():
+                      try:
+                          req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0"})
+                          with urllib.request.urlopen(req,timeout=30) as r:
+                              dest.write_bytes(r.read())
+                          time.sleep(.1)
+                      except Exception as e:
+                          print("FAILED",u,e)
+                          continue
+                  text=text.replace(u,"audio/"+name)
+                  changed=True
+              p.write_text(text)
+          print("audio files:",len(list(out.glob("*.mp3"))))
+          PY
+      - name: Commit cached audio
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tracks.js accounting.js audio/
+          git diff --cached --quiet || git commit -m "Cache radio audio locally"
+          git push
