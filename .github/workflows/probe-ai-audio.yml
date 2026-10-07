@@ -1,0 +1,26 @@
+name: Probe AI audio
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-ai-audio.yml"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect AI audio endpoint
+        run: |
+          set -euxo pipefail
+          URL='https://www.aidocmaker.com/g0/audio?name=b88be6b101f442a799356821d2a5d618'
+          curl -L -sS -D /tmp/headers.txt "$URL" -o /tmp/body
+          echo '--- headers ---'
+          cat /tmp/headers.txt
+          echo '--- file ---'
+          file /tmp/body
+          wc -c /tmp/body
+          echo '--- possible media URLs ---'
+          strings /tmp/body | grep -Eo 'https?://[^" ]+\.(mp3|m4a|wav)(\?[^" ]*)?' | head -20 || true
+          echo '--- body prefix ---'
+          head -c 500 /tmp/body | tr '\000-\037' ' ' || true
