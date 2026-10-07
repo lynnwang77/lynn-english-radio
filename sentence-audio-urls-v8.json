@@ -1,0 +1,35 @@
+{
+  "voice": "normal",
+  "items": [
+    {
+      "track": "Balance Sheet · Core Terms",
+      "index": 1,
+      "text": "Cash and Cash Equivalents. Cash available now, including bank balances.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/8d55308c-d239-4b96-8601-4baa14aacc58.mp3"
+    },
+    {
+      "track": "Balance Sheet · Core Terms",
+      "index": 2,
+      "text": "Accounts Receivable. Money customers owe the company.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/68185146-0c20-43e9-a945-dc29700ba79a.mp3"
+    },
+    {
+      "track": "Balance Sheet · Core Terms",
+      "index": 3,
+      "text": "Inventory. Goods the company holds for sale.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/adb66684-af98-4e18-9638-01630d1a6038.mp3"
+    },
+    {
+      "track": "Balance Sheet · Core Terms",
+      "index": 4,
+      "text": "Prepaid Expenses. Costs paid before they are used.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/0536b897-c400-4d7f-b686-3c47afbd8c9d.mp3"
+    },
+    {
+      "track": "Balance Sheet · Core Terms",
+      "index": 5,
+      "text": "Current Assets. Assets expected to turn into cash within one year.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/f1fd876d-b442-4de0-ba39-f96285cf05f2.mp3"
+    }
+  ]
+}
