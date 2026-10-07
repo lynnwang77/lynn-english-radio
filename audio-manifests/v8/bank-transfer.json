@@ -1,0 +1,36 @@
+{
+  "track": "Bank Transfer",
+  "voice": "normal",
+  "entries": [
+    {
+      "index": 1,
+      "en": "This is a transfer between two bank accounts.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/8c98f5e7-a841-4561-9e3f-7e855ba264ea.mp3",
+      "path": "audio/sentences/bank-transfer-01.mp3"
+    },
+    {
+      "index": 2,
+      "en": "It should not be recorded as an expense.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/5d2bf0a2-c9de-4451-b3f0-910e4e797b0b.mp3",
+      "path": "audio/sentences/bank-transfer-02.mp3"
+    },
+    {
+      "index": 3,
+      "en": "I want to make sure the money has actually arrived.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/60c433dd-e2b9-4c44-aa51-f4e6ec6f59e3.mp3",
+      "path": "audio/sentences/bank-transfer-03.mp3"
+    },
+    {
+      "index": 4,
+      "en": "The transaction is still showing as pending.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/c8ed52f5-9d64-49f5-ab0c-c4e1fcf0a234.mp3",
+      "path": "audio/sentences/bank-transfer-04.mp3"
+    },
+    {
+      "index": 5,
+      "en": "We should avoid recording the same transaction twice.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/5b19c11c-0f2f-4b69-aa20-9ffc18ac9132.mp3",
+      "path": "audio/sentences/bank-transfer-05.mp3"
+    }
+  ]
+}
