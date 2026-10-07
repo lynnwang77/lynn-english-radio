@@ -14,13 +14,28 @@ jobs:
         run: |
           set -euxo pipefail
           URL='https://www.aidocmaker.com/g0/audio?name=b88be6b101f442a799356821d2a5d618'
-          curl -L -sS -D /tmp/headers.txt "$URL" -o /tmp/body
-          echo '--- headers ---'
-          cat /tmp/headers.txt
-          echo '--- file ---'
-          file /tmp/body
-          wc -c /tmp/body
-          echo '--- possible media URLs ---'
-          strings /tmp/body | grep -Eo 'https?://[^" ]+\.(mp3|m4a|wav)(\?[^" ]*)?' | head -20 || true
-          echo '--- body prefix ---'
-          head -c 500 /tmp/body | tr '\000-\037' ' ' || true
+          curl -L -sS "$URL" -o /tmp/body
+          python - <<'PY'
+          import re, html
+          s=open('/tmp/body',encoding='utf-8').read()
+          s=html.unescape(s)
+          print('length',len(s))
+          print('context present', 'b88be6b101f442a799356821d2a5d618' in s)
+          pats=[
+            r'https?://[^"\'<> ]+',
+            r'/_next/[^"\'<> ]+',
+            r'[^"\'<> ]+\.(?:mp3|m4a|wav|aac)(?:\?[^"\'<> ]*)?',
+          ]
+          seen=[]
+          for p in pats:
+            for m in re.findall(p,s):
+              if m not in seen:
+                seen.append(m)
+          for x in seen[:120]: print(x)
+          for kw in ['download','audio','blob','storage','context_id','preview_url','name=']:
+            print('\nKEY',kw)
+            for m in re.finditer(kw,s,re.I):
+              a=max(0,m.start()-180); b=min(len(s),m.start()+380)
+              print(s[a:b].replace('\n',' ')[:700])
+              break
+          PY
