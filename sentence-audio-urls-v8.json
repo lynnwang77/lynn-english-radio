@@ -324,6 +324,36 @@
       "index": 5,
       "text": "Let's reconcile the account after the transactions are matched.",
       "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/0909e800-b449-426d-bf9e-a105f6f228ed.mp3"
+    },
+    {
+      "track": "Approval",
+      "index": 1,
+      "text": "This payment requires approval before it can move forward.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/6f66e4b6-e424-422a-9f6a-d56012f42709.mp3"
+    },
+    {
+      "track": "Approval",
+      "index": 2,
+      "text": "The approver needs enough context to make a decision.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/602e36df-5a97-4582-ba90-72aff67e0f92.mp3"
+    },
+    {
+      "track": "Approval",
+      "index": 3,
+      "text": "The workflow should reflect how the team actually works.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/1506f399-41e6-45f0-9253-8054a6b45322.mp3"
+    },
+    {
+      "track": "Approval",
+      "index": 4,
+      "text": "An approval step should not create unnecessary delays.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/d31c4af9-718b-400c-92c8-03df26fdffd4.mp3"
+    },
+    {
+      "track": "Approval",
+      "index": 5,
+      "text": "I want the controls to be clear without making the process heavier.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/dbc88fd1-ad22-4c26-adb9-243fea764087.mp3"
     }
   ]
 }
