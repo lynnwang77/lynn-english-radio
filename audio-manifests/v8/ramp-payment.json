@@ -1,0 +1,36 @@
+{
+  "track": "Ramp Payment",
+  "voice": "normal",
+  "entries": [
+    {
+      "index": 1,
+      "en": "The payment has been initiated, but it has not settled yet.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/81c7540d-3596-445e-90bc-709777afe3b2.mp3",
+      "path": "audio/sentences/ramp-payment-01.mp3"
+    },
+    {
+      "index": 2,
+      "en": "The available balance is different from the forecasted balance.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/0b26b8f8-635c-4752-989a-76725234bc01.mp3",
+      "path": "audio/sentences/ramp-payment-02.mp3"
+    },
+    {
+      "index": 3,
+      "en": "I need to know whether this payment is still in flight.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/383604e9-f336-4572-bd37-aa8795fd634a.mp3",
+      "path": "audio/sentences/ramp-payment-03.mp3"
+    },
+    {
+      "index": 4,
+      "en": "Please check the payment status before making another transfer.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/7beb65ba-1f6d-494e-9407-67a7cb0dbf54.mp3",
+      "path": "audio/sentences/ramp-payment-04.mp3"
+    },
+    {
+      "index": 5,
+      "en": "I want the cash position to be clear before we move more money.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/cfcf1c28-65ae-482b-a026-3c900a1be582.mp3",
+      "path": "audio/sentences/ramp-payment-05.mp3"
+    }
+  ]
+}
