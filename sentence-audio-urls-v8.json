@@ -222,6 +222,36 @@
       "index": 5,
       "text": "Does he need to be here in person to sign?",
       "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/18c50e96-43ba-46b4-995f-969c8524db04.mp3"
+    },
+    {
+      "track": "Bank Transfer",
+      "index": 1,
+      "text": "This is a transfer between two bank accounts.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/17954393-8c2d-45e5-8e8a-1b3f372dd09d.mp3"
+    },
+    {
+      "track": "Bank Transfer",
+      "index": 2,
+      "text": "It should not be recorded as an expense.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/0e094765-3215-491a-967d-40eead1dc982.mp3"
+    },
+    {
+      "track": "Bank Transfer",
+      "index": 3,
+      "text": "I want to make sure the money has actually arrived.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/af437033-6ad8-4d90-82f2-872eb4c1841e.mp3"
+    },
+    {
+      "track": "Bank Transfer",
+      "index": 4,
+      "text": "The transaction is still showing as pending.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/a5bdfb6b-52da-461c-8c0b-0db7b386dbaa.mp3"
+    },
+    {
+      "track": "Bank Transfer",
+      "index": 5,
+      "text": "We should avoid recording the same transaction twice.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/f53033e7-73c4-4fe6-87be-6ec5014b369b.mp3"
     }
   ]
 }
