@@ -1,0 +1,48 @@
+{
+  "track": "Bank Account Opening",
+  "voice": "normal",
+  "entries": [
+    {
+      "index": 1,
+      "en": "I'd like to open a new business bank account.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/1d07a071-536e-46e4-9cc8-c085f60e13a7.mp3",
+      "path": "audio/sentences/bank-account-opening-01.mp3"
+    },
+    {
+      "index": 2,
+      "en": "Should this account be separate from our other accounts?",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/3fdfcfc7-5239-4b84-b159-cb01ca4a2a44.mp3",
+      "path": "audio/sentences/bank-account-opening-02.mp3"
+    },
+    {
+      "index": 3,
+      "en": "Can these accounts be linked together?",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/ae43a171-e284-40ac-8760-e5a6b09b2065.mp3",
+      "path": "audio/sentences/bank-account-opening-03.mp3"
+    },
+    {
+      "index": 4,
+      "en": "Who will have access to this account?",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/eb1d967b-f87a-4b70-bdcc-62ff4fe37631.mp3",
+      "path": "audio/sentences/bank-account-opening-04.mp3"
+    },
+    {
+      "index": 5,
+      "en": "Does he need to be here in person to sign?",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/91b14527-37a4-4dfa-85ed-ca925ca4455a.mp3",
+      "path": "audio/sentences/bank-account-opening-05.mp3"
+    },
+    {
+      "index": 6,
+      "en": "He said he would be here at four.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/d6fe8cab-56b3-41e3-9ed5-a5fca48fd397.mp3",
+      "path": "audio/sentences/bank-account-opening-06.mp3"
+    },
+    {
+      "index": 7,
+      "en": "I don't think I need to wait for him.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/d7344050-d347-4c2c-9a3c-9068a937b000.mp3",
+      "path": "audio/sentences/bank-account-opening-07.mp3"
+    }
+  ]
+}
