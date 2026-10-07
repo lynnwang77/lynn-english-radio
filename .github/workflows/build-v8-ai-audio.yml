@@ -1,0 +1,74 @@
+name: Build v8 AI radio audio
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-v8-ai-audio.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download fresh AI Normal audio and build durable tracks
+        run: |
+          set -euo pipefail
+          mkdir -p audio/staging audio/tracks
+          dl(){ echo "Downloading $1"; curl -fL --retry 2 --connect-timeout 15 "$2" -o "audio/staging/$1.mp3"; test -s "audio/staging/$1.mp3"; ffprobe -v error "audio/staging/$1.mp3" >/dev/null; }
+
+          dl bank-account-opening 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/e01bd245-f790-47dd-8e36-f040b2865bca.mp3'
+          dl bank-transfer 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/daf480e7-43ef-4646-9687-ddc37f6b747c.mp3'
+          dl ramp-payment 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/032000f5-c227-4380-a478-c24ba13750e4.mp3'
+          dl qbo-match 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/88d8d1bd-451b-4960-b9ad-a9a8da55bf55.mp3'
+          dl approval 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/1778bd43-bd27-42ce-8895-d39207037d3b.mp3'
+          dl psalm-23-by-still-waters 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/e921ebd0-019b-43b7-9e76-3132634ecb2e.mp3'
+          dl do-my-part 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/d9fec2e4-2a71-4fa1-96ac-f46685a179f8.mp3'
+          dl boundaries 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/71f133c6-cce9-4e77-acb1-77b9d49e54e6.mp3'
+          dl a-quiet-day 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/c263ccff-15af-4823-baa5-5672baa956f4.mp3'
+
+          dl balance-sheet-core-terms-part1 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/662bd21b-e9c3-4208-a158-a2f99bf264a8.mp3'
+          dl balance-sheet-core-terms-part2 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/5b6741f5-1f4a-4f04-9142-034db20e818e.mp3'
+          dl profit-and-loss-core-terms-part1 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/a6907806-7de2-4c35-a708-a98ace3457fc.mp3'
+          dl profit-and-loss-core-terms-part2 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/3cf90c1e-fa08-418b-852f-a5dae060413c.mp3'
+          dl cash-flow-core-terms-part1 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/e48b91d3-3709-4cb9-8ae7-979461f68d46.mp3'
+          dl cash-flow-core-terms-part2 'https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/af928bb7-abcf-427f-b91f-6cf6d09e55c0.mp3'
+
+          for n in bank-account-opening bank-transfer ramp-payment qbo-match approval psalm-23-by-still-waters do-my-part boundaries a-quiet-day; do
+            cp "audio/staging/$n.mp3" "audio/tracks/$n.mp3"
+          done
+
+          concat2(){
+            printf "file '%s'\nfile '%s'\n" "$PWD/audio/staging/$1-part1.mp3" "$PWD/audio/staging/$1-part2.mp3" > /tmp/list.txt
+            ffmpeg -loglevel error -y -f concat -safe 0 -i /tmp/list.txt -c copy "audio/tracks/$1.mp3"
+            ffprobe -v error "audio/tracks/$1.mp3" >/dev/null
+          }
+          concat2 balance-sheet-core-terms
+          concat2 profit-and-loss-core-terms
+          concat2 cash-flow-core-terms
+
+          cat > track-audio.js <<'EOF'
+          window.LYNN_TRACK_AUDIO = {
+            "Bank Account Opening":"audio/tracks/bank-account-opening.mp3",
+            "Bank Transfer":"audio/tracks/bank-transfer.mp3",
+            "Ramp Payment":"audio/tracks/ramp-payment.mp3",
+            "QBO Match":"audio/tracks/qbo-match.mp3",
+            "Approval":"audio/tracks/approval.mp3",
+            "Psalm 23 — By Still Waters":"audio/tracks/psalm-23-by-still-waters.mp3",
+            "Do My Part":"audio/tracks/do-my-part.mp3",
+            "Boundaries":"audio/tracks/boundaries.mp3",
+            "A Quiet Day":"audio/tracks/a-quiet-day.mp3",
+            "Balance Sheet · Core Terms":"audio/tracks/balance-sheet-core-terms.mp3",
+            "Profit & Loss · Core Terms":"audio/tracks/profit-and-loss-core-terms.mp3",
+            "Cash Flow · Core Terms":"audio/tracks/cash-flow-core-terms.mp3"
+          };
+          EOF
+          rm -rf audio/staging
+      - name: Commit durable audio
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audio/tracks track-audio.js
+          git diff --cached --quiet || git commit -m "Add durable AI Normal track audio for v8"
+          git push
