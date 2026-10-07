@@ -1,0 +1,49 @@
+name: Build v8 sentence AI audio
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sentence-audio-urls-v8.json"
+      - ".github/workflows/build-v8-sentence-audio.yml"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download sentence audio
+        run: |
+          python - <<'PY'
+          import json, pathlib, re, urllib.request, time
+          data=json.load(open("sentence-audio-urls-v8.json",encoding="utf-8"))
+          out=pathlib.Path("audio/sentences"); out.mkdir(parents=True,exist_ok=True)
+          mapping={}
+          def slug(s):
+              s=s.lower().replace("&"," and ").replace("’","").replace("'","")
+              s=re.sub(r"[^a-z0-9]+","-",s).strip("-")
+              return s[:70]
+          for n,item in enumerate(data["items"],1):
+              name=f'{slug(item["track"])}-{int(item["index"]):02d}.mp3'
+              dest=out/name
+              print(f'[{n}/{len(data["items"])}] {name}')
+              req=urllib.request.Request(item["url"],headers={"User-Agent":"Mozilla/5.0"})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  body=r.read()
+              if len(body)<1000:
+                  raise RuntimeError(f"download too small: {name} {len(body)}")
+              dest.write_bytes(body)
+              mapping.setdefault(item["track"],{})[str(item["index"])]=f"audio/sentences/{name}"
+              time.sleep(.03)
+          js="window.LYNN_SENTENCE_AUDIO = "+json.dumps(mapping,ensure_ascii=False,indent=2)+";\n"
+          pathlib.Path("sentence-audio.js").write_text(js,encoding="utf-8")
+          print("saved",len(data["items"]),"sentence files")
+          PY
+      - name: Commit sentence audio
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add audio/sentences sentence-audio.js
+          git diff --cached --quiet || git commit -m "Add durable AI Normal sentence audio for v8"
+          git push
