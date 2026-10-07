@@ -294,6 +294,36 @@
       "index": 5,
       "text": "I want the cash position to be clear before we move more money.",
       "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/f3323bba-69bf-495e-9487-572c3ad0cb64.mp3"
+    },
+    {
+      "track": "QBO Match",
+      "index": 1,
+      "text": "This transaction already exists in QuickBooks.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/715a39ae-edc7-43c0-93f1-64413aa0f1ca.mp3"
+    },
+    {
+      "track": "QBO Match",
+      "index": 2,
+      "text": "We should match it instead of adding a new expense.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/c637d2ad-a7f0-4fe6-be14-44fdc88ee0a1.mp3"
+    },
+    {
+      "track": "QBO Match",
+      "index": 3,
+      "text": "The bill payment should be linked to the original bill.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/7127dc01-fa60-427c-899d-ffffbaf63f7e.mp3"
+    },
+    {
+      "track": "QBO Match",
+      "index": 4,
+      "text": "I am checking for duplicate entries.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/0a8fcfdb-69b7-4a55-b868-e01b5638266c.mp3"
+    },
+    {
+      "track": "QBO Match",
+      "index": 5,
+      "text": "Let's reconcile the account after the transactions are matched.",
+      "url": "https://storage.googleapis.com/adm--audio-playback--7d--public/mcp-preview/0909e800-b449-426d-bf9e-a105f6f228ed.mp3"
     }
   ]
 }
