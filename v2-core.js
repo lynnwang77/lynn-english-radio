@@ -17,6 +17,9 @@
   function trackId(t) { return t.id ? "import:" + t.id : t.channel + "||" + t.title; }
   function legacyKey(t, s) { return [t.channel, t.title, s.en].join("||"); }
   function sentenceId(t, s) { return t.id && s.id ? "import:" + t.id + ":" + s.id : legacyKey(t, s); }
+  function area(t) {
+    return t.channel === "life" && t.title === "Psalm 23 — By Still Waters" ? "bible" : t.channel;
+  }
   function safeAudio(s) {
     if (typeof s !== "string") return "";
     if (/^audio\/[a-z0-9/_.-]+\.mp3$/i.test(s) && !s.includes("..")) return s;
@@ -33,10 +36,10 @@
     const tracks = [];
     let skipped = 0;
     for (const raw of data.tracks) {
-      if (!raw || !["life", "work"].includes(raw.channel) || typeof raw.title !== "string" ||
+      if (!raw || !["life", "work", "bible"].includes(raw.channel) || typeof raw.title !== "string" ||
           !raw.title.trim() || raw.title.length > 100 || !Array.isArray(raw.sentences) ||
           !raw.sentences.length || raw.sentences.length > MAX_SENTENCES)
-        throw new Error("Invalid lesson. Each needs a Life/Work channel, title, and 1–100 sentences.");
+        throw new Error("Invalid lesson. Each needs a Life, Work or Bible channel, title, and 1–100 sentences.");
       const title = raw.title.trim();
       const duplicate = raw.channel + "||" + title.toLowerCase();
       if (used.has(duplicate) || (raw.id && usedIds.has(raw.id))) { skipped++; continue; }
@@ -52,6 +55,11 @@
       });
       const track = { id, channel: raw.channel, title, meta: typeof raw.meta === "string" ? raw.meta.slice(0, 160) : "Real-life English · ChatGPT",
         status: "inbox", sentences, trackAudio: safeAudio(raw.trackAudio) };
+      if (["scene", "reading"].includes(raw.type)) track.type = raw.type;
+      if (Array.isArray(raw.tags)) track.tags = raw.tags.filter(tag=>typeof tag==="string").slice(0,8).map(tag=>tag.slice(0,40));
+      for (const key of ["context", "reading", "dialogue"]) {
+        if (typeof raw[key] === "string") track[key] = raw[key].slice(0,8000);
+      }
       for (const s of sentences) {
         const key = sentenceId(track, s);
         if (usedSentences.has(key)) throw new Error("Duplicate sentence IDs.");
@@ -122,5 +130,39 @@
     const fresh = prioritized.slice(0, Math.min(Math.max(0, maxNew - introducedToday), remaining - due.length));
     return {due, fresh, all: due.concat(fresh)};
   }
-  root.LynnCore = {LADDER, dayStamp, addDays, trackId, legacyKey, sentenceId, safeAudio, normalizeImport, grade, entries, todayPlan};
+  function dailyAssignment(items, progress, day, favorites) {
+    const active = items.filter(it => it.status === "current");
+    const done = items.filter(it => progress[it.id]?.lastReviewed === day);
+    const oldDone = done.filter(it=>progress[it.id].firstReviewed!==day).length;
+    const newDone = done.length - oldDone;
+    const due = active.filter(it=>progress[it.id]?.due<=day && progress[it.id].lastReviewed!==day)
+      .sort((a,b)=>progress[a.id].due.localeCompare(progress[b.id].due));
+    const maxNew = due.length + oldDone > 5 ? 1 : 2;
+    const fresh = active.filter(it=>!progress[it.id]).sort((a,b)=>priority(b)-priority(a));
+    function priority(it) {
+      if (it.personal || it.t.type === "scene") return 2;
+      return favorites.has(legacyKey(it.t,it.s)) ? 1 : 0;
+    }
+    return {day, due:due.slice(0,Math.max(0,5-oldDone)).map(it=>it.id),
+      fresh:fresh.slice(0,Math.max(0,maxNew-newDone)).map(it=>it.id)};
+  }
+  function normalizeWords(list) {
+    if (!Array.isArray(list)) throw new Error("Expected a list of personal expressions.");
+    return list.map(w=>{
+      if (!w || typeof w.first !== "string" || !w.first.trim() ||
+          typeof w.id !== "string" || !/^[a-z0-9-]{1,120}$/i.test(w.id))
+        throw new Error("Invalid personal expression.");
+      const result = {id:w.id, review:w.review===true};
+      for (const key of ["first","better","date","scene","note"])
+        result[key] = typeof w[key]==="string" ? w[key].trim().slice(0,key==="date"?10:2000) : "";
+      return result;
+    });
+  }
+  function mergeWords(local, incoming) {
+    const words = new Map(local.map(w=>[w.id,w]));
+    for (const w of incoming) if (!words.has(w.id)) words.set(w.id,w);
+    return [...words.values()];
+  }
+  root.LynnCore = {LADDER, dayStamp, addDays, trackId, legacyKey, sentenceId, safeAudio, normalizeImport, grade, entries, todayPlan,
+    area, dailyAssignment, normalizeWords, mergeWords};
 })(typeof window === "undefined" ? globalThis : window);

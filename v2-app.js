@@ -6,6 +6,7 @@ const BASE=Array.isArray(window.LYNN_TRACKS)?window.LYNN_TRACKS:[];
 const A=window.LYNN_TRACK_AUDIO||{}, SA=window.LYNN_SENTENCE_AUDIO||{};
 const $=id=>document.getElementById(id);
 const STORAGE={imported:"lynn.v2.importedTracks",progress:"lynn.v2.progress",overrides:"lynn.v2.trackStatus"};
+const DAY_KEY="lynn.unified.today";
 function get(key,fallback){try{let x=localStorage.getItem(key);return x===null?fallback:JSON.parse(x)}catch(e){return fallback}}
 function raw(key,fallback){try{return localStorage.getItem(key)||fallback}catch(e){return fallback}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch(e){notice("Browser storage is full/unavailable. Export a backup and check your browser settings.");return false}}
@@ -18,8 +19,9 @@ const storedTracks=get(STORAGE.imported,[]);
 let imported=Array.isArray(storedTracks)?storedTracks:[];
 let progress=cleanProgress(get(STORAGE.progress,{}));
 let overrides=validMap(get(STORAGE.overrides,{}));
-let channel=["work","life"].includes(raw("channel","work"))?raw("channel","work"):"work";
-let view="today",selectedTrack="",libraryFilter="current",query="",showZh=raw("zh","on")!=="off";
+let channel=["work","life","bible"].includes(raw("lynn.area",raw("channel","life")))?raw("lynn.area",raw("channel","life")):"life";
+let mode="study",view="today",selectedTrack="",libraryFilter="current",query="",topic="",showZh=raw("zh","on")!=="off";
+let assignment=get(DAY_KEY,null);
 let revealed=new Set(), currentItems=[], queue=[],queuePos=0,loopQueue=false,playToken=0,playingId="";
 const media=$("player");media.preload="metadata";media.setAttribute("playsinline","");
 const rate=$("rate");
@@ -39,6 +41,7 @@ function changeStatus(t,status){
 function isFav(it){return favorites.has(Core.legacyKey(it.t,it.s))}
 function markPlaying(){document.querySelectorAll(".sentence").forEach(x=>x.classList.toggle("playing",x.dataset.id===playingId))}
 function navi(){
+ document.querySelectorAll("[data-mode]").forEach(b=>{b.classList.toggle("active",b.dataset.mode===mode);b.setAttribute("aria-pressed",String(b.dataset.mode===mode))});
  document.querySelectorAll("[data-channel]").forEach(b=>{b.classList.toggle("active",b.dataset.channel===channel);b.setAttribute("aria-pressed",String(b.dataset.channel===channel))});
  document.querySelectorAll("[data-view]").forEach(b=>{b.classList.toggle("active",b.dataset.view===view);b.setAttribute("aria-current",b.dataset.view===view?"page":"false")});
 }
@@ -60,27 +63,35 @@ function itemHtml(it,i,practice){
   '</div>'+review+'</article>';
 }
 function listItems(items,practice){currentItems=items;return items.map((it,i)=>itemHtml(it,i,practice)).join("")}
-function statsHtml(){
- const ents=allEntries().filter(e=>e.t.channel===channel&&e.status==="current");
- const p=Core.todayPlan(ents,progress,channel,Core.dayStamp(),8,3,favorites);
- const done=ents.filter(e=>progress[e.id]&&progress[e.id].lastReviewed===Core.dayStamp()).length;
- return '<div class="stats"><div class="stat"><strong>'+p.due.length+'</strong>Due today</div>'+
-   '<div class="stat"><strong>'+p.fresh.length+'</strong>New picks</div>'+
-   '<div class="stat"><strong>'+done+'</strong>Reviewed today</div></div>';
-}
 function todayHtml(){
- const plan=Core.todayPlan(allEntries(),progress,channel,Core.dayStamp(),8,3,favorites);
- let html=statsHtml()+'<section class="card"><h2>Today · 10–15 minutes</h2><p class="muted">Say it in English → check the answer and listen → rate your recall to schedule the next review.</p>';
- if(!plan.all.length)return html+'<div class="empty">You are caught up for today. Explore the Library, or come back tomorrow.</div></section>';
- return html+listItems(plan.all,true)+'</section>';
+ const day=Core.dayStamp(),items=allEntries();
+ if(assignment?.day!==day||!Array.isArray(assignment.due)||!Array.isArray(assignment.fresh)){
+  assignment=Core.dailyAssignment(items,progress,day,favorites);
+  save(DAY_KEY,assignment);
+ }
+ const active=new Map(items.filter(it=>it.status==="current").map(it=>[it.id,it]));
+ const pending=ids=>ids.map(id=>active.get(id)).filter(it=>it&&progress[it.id]?.lastReviewed!==day);
+ const due=pending(assignment.due),fresh=pending(assignment.fresh);
+ const done=items.filter(it=>progress[it.id]?.lastReviewed===day).length;
+ const stats='<div class="stats"><div class="stat"><strong>'+due.length+'</strong>Due today</div><div class="stat"><strong>'+fresh.length+'</strong>New picks</div><div class="stat"><strong>'+done+'</strong>Reviewed today</div></div>';
+ let html=stats+'<section class="card"><h2>Today · 15 minutes</h2><p class="muted">Recall the English aloud, check the answer, listen or repeat, then rate your recall.</p>';
+ if(!due.length&&!fresh.length)return html+'<div class="empty">You are caught up for today.</div></section>';
+ return html+listItems(due.concat(fresh),true)+'</section>';
 }
 function libraryHtml(){
- const tracks=allTracks().filter(t=>t.channel===channel&&trackStatus(t)!=="inbox"&&
+ const available=allTracks().filter(t=>Core.area(t)===channel&&trackStatus(t)!=="inbox");
+ const topics=[...new Set(available.flatMap(t=>t.tags||[]))].sort();
+ const tracks=available.filter(t=>
   (libraryFilter==="all"||trackStatus(t)===libraryFilter)&&
-  (t.title+" "+(t.meta||"")).toLowerCase().includes(query.toLowerCase()));
+  (!topic||(topic==="@scene"?t.type==="scene":t.tags?.includes(topic)))&&
+  [t.title,t.meta,...(t.tags||[])].join(" ").toLowerCase().includes(query.toLowerCase()));
  if(!tracks.some(t=>Core.trackId(t)===selectedTrack))selectedTrack=tracks.length?Core.trackId(tracks[0]):"";
  let html='<section class="card"><div class="cardhead"><h2>Library</h2><div class="tools"><input class="search" id="search" placeholder="Search lessons" aria-label="Search lessons" value="'+esc(query)+'">'+
   '<select id="libraryFilter" aria-label="Library status"><option value="current" '+(libraryFilter==="current"?"selected":"")+'>Current</option><option value="archive" '+(libraryFilter==="archive"?"selected":"")+'>Archive</option><option value="all" '+(libraryFilter==="all"?"selected":"")+'>All lessons</option></select></div></div>';
+ if(topics.length||channel==="life"){
+  const choices=[...(channel==="life"?[["@scene","Real-life scenes"]]:[]),...topics.map(t=>[t,t])];
+  html+='<div class="row"><label>Topic <select id="topic"><option value="">All topics</option>'+choices.map(([key,label])=>'<option value="'+esc(key)+'" '+(topic===key?"selected":"")+'>'+esc(label)+'</option>').join("")+'</select></label></div>';
+ }
  html+='<div class="tracklist">'+tracks.map(t=>'<button class="trackbtn '+(Core.trackId(t)===selectedTrack?"active":"")+'" data-action="track" data-track="'+esc(Core.trackId(t))+'">'+esc(t.title)+'</button>').join("")+'</div>';
  const t=tracks.find(x=>Core.trackId(x)===selectedTrack);
  if(!t){currentItems=[];return html+'<div class="empty">No lessons in this category.</div></section>'}
@@ -92,17 +103,17 @@ function libraryHtml(){
  html+=listItems(es,false)+'</section>';return html;
 }
 function favoritesHtml(){
- const es=allEntries().filter(it=>it.t.channel===channel&&isFav(it));
+ const es=allEntries().filter(it=>Core.area(it.t)===channel&&isFav(it));
  return '<section class="card"><div class="cardhead"><h2>★ Favorites</h2><div class="row"><button data-action="play-list">▶ Play All</button><button data-action="loop-list">↻ Loop All</button></div></div>'+
  (es.length?listItems(es,false):'<div class="empty">Star a sentence in Library or Today to save it here.</div>')+'</section>';
 }
 function masteredHtml(){
- const es=allEntries().filter(it=>it.t.channel===channel&&progress[it.id]?.mastered);
+ const es=allEntries().filter(it=>Core.area(it.t)===channel&&progress[it.id]?.mastered);
  return '<section class="card"><h2>Mastered ✓</h2><p class="muted">These are strong sentences, not forgotten sentences. They return periodically for maintenance.</p>'+
  (es.length?listItems(es,false):'<div class="empty">Practice sentences several times or mark one Mastered after you can say it independently.</div>')+'</section>';
 }
 function inboxHtml(){
- const tracks=imported.filter(t=>t.channel===channel&&trackStatus(t)==="inbox");
+ const tracks=imported.filter(t=>Core.area(t)===channel&&trackStatus(t)==="inbox");
  let html='<section class="card"><h2>Inbox · New real-life English</h2><p class="muted">Import a JSON file prepared in ChatGPT. New lessons wait here until you add them to the Library. Imported lessons stay on this browser until backed up.</p>';
  if(!tracks.length){currentItems=[];return html+'<div class="empty">Your Inbox is empty. Use Import JSON above to add a real-life scenario.</div></section>'}
  currentItems=[];
@@ -121,8 +132,13 @@ function render(){
  $("content").innerHTML=view==="today"?todayHtml():view==="library"?libraryHtml():view==="favorites"?favoritesHtml():view==="inbox"?inboxHtml():masteredHtml();
  markPlaying();
 }
-function setView(v){stop();view=v;revealed.clear();render()}
-function setChannel(c){stop();channel=c;savePreference("channel",channel);selectedTrack="";query="";revealed.clear();render()}
+function setView(v){stop();view=v;if(v==="today")mode="study";revealed.clear();render()}
+function setChannel(c){
+ stop();channel=c;savePreference("lynn.area",c);if(c!=="bible")savePreference("channel",c);
+ selectedTrack="";query="";topic="";revealed.clear();
+ if(view==="today")view="library";
+ render();
+}
 function audioSrc(it){
  if(it.t.id)return Core.safeAudio(it.s.audio);
  const n=it.t.sentences.indexOf(it.s)+1;
@@ -197,7 +213,7 @@ async function importLessons(file){
  try{const data=JSON.parse(await file.text()),parsed=Core.normalizeImport(data,allTracks());
  if(!parsed.tracks.length){notice("No new lessons: "+parsed.skipped+" already exist.");return}
  if(!save(STORAGE.imported,imported.concat(parsed.tracks)))return;
- imported=imported.concat(parsed.tracks);stop();channel=parsed.tracks[0].channel;savePreference("channel",channel);
+ imported=imported.concat(parsed.tracks);stop();channel=Core.area(parsed.tracks[0]);savePreference("lynn.area",channel);
  view="inbox";selectedTrack="";query="";revealed.clear();render();
  notice("Imported "+parsed.tracks.length+" lesson(s) into Inbox. Skipped duplicates: "+parsed.skipped+".");
  }catch(e){notice("Import failed: "+e.message)}
@@ -279,6 +295,7 @@ async function restoreBackup(file){
 }
 $("nav").addEventListener("click",e=>{
  const b=e.target.closest("button");if(!b)return;
+ if(b.dataset.mode){mode=b.dataset.mode;setView(mode==="radio"?"library":"today");return}
  if(b.dataset.channel)setChannel(b.dataset.channel);
  if(b.dataset.view)setView(b.dataset.view);
 });
@@ -322,7 +339,10 @@ $("restoreFile").onchange=async e=>{await restoreBackup(e.target.files[0]);e.tar
 $("zhbtn").onclick=()=>{showZh=!showZh;savePreference("zh",showZh?"on":"off");render()};
 $("stopBtn").onclick=()=>{stop();notice("Stopped.")};
 rate.onchange=()=>{savePreference("rate",rate.value);media.playbackRate=Number(rate.value)||1};
-$("content").addEventListener("change",e=>{if(e.target.id==="libraryFilter"){libraryFilter=e.target.value;selectedTrack="";render()}});
+$("content").addEventListener("change",e=>{
+ if(e.target.id==="libraryFilter"){libraryFilter=e.target.value;selectedTrack="";render()}
+ if(e.target.id==="topic"){topic=e.target.value;selectedTrack="";render()}
+});
 $("content").addEventListener("input",e=>{if(e.target.id==="search"){let pos=e.target.selectionStart;query=e.target.value;render();let input=$("search");if(input){input.focus();input.setSelectionRange(pos,pos)}}});
 window.addEventListener?.("storage",event=>{
  if(event.key===null||event.key==="favorites"){
