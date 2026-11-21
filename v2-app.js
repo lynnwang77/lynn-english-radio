@@ -34,6 +34,7 @@ const savedRate=Number(raw("rate","1.0"));
 rate.value=({0.85:"0.85",0.95:"0.95",1:"1.0",1.1:"1.1"})[savedRate]||"1.0";
 media.playbackRate=Number(rate.value);
 let audioActive=false;
+let recognition=null;
 function catalogWith(lessons){return CATALOG.filter(t=>!lessons.some(item=>item.id===t.id))}
 const allTracks=()=>BASE.concat(catalogWith(imported),imported);
 function wordEntry(w){
@@ -65,13 +66,14 @@ function itemHtml(it,i,practice){
   (open?'<div class="en">'+esc(it.s.en)+'</div>':'<div class="hidden-answer">Try saying it aloud, then reveal the English.</div>')+'</div>':
   '<div class="en">'+esc(it.s.en)+'</div>'+(showZh?'<div class="zh">'+esc(it.s.zh)+'</div>':"");
  const review=practice&&open?'<div class="row"><button data-action="grade" data-choice="again" data-index="'+i+'" class="again">Again · 重来</button><button data-action="grade" data-choice="hard" data-index="'+i+'">Hard · 还不熟</button><button data-action="grade" data-choice="good" data-index="'+i+'" class="good">Good · 会了</button><button data-action="grade" data-choice="easy" data-index="'+i+'" class="good">Easy · 很熟</button><button data-action="grade" data-choice="mastered" data-index="'+i+'">Mastered ✓</button></div>':"";
+ const repeat=practice&&open?'<details class="reading"><summary>Repeat · 跟读</summary><label class="transcript-label">What you said<textarea maxlength="2000" placeholder="Type what you said"></textarea></label><div class="row"><button data-action="transcribe">🎙 Transcribe</button></div></details>':"";
  return '<article class="sentence" data-id="'+esc(id)+'">'+head+body+
   '<div class="row">'+(practice&&!open?'<button class="primary" data-action="reveal" data-index="'+i+'">Show English · 查看答案</button>':"")+
   '<button data-action="play-one" data-index="'+i+'">▶ Listen</button>'+
   '<button data-action="loop-one" data-index="'+i+'">↻ Loop</button>'+
   (!it.personal?'<button class="'+(fav?"starred":"")+'" data-action="favorite" data-index="'+i+'">'+(fav?"★ Saved":"☆ Favorite")+'</button>':"")+
   (!practice&&!r&&trackStatus(it.t)==="current"&&mode==="study"?'<button data-action="grade" data-choice="again" data-index="'+i+'">Start reviewing</button>':"")+
-  '</div>'+review+'</article>';
+  '</div>'+repeat+review+'</article>';
 }
 function listItems(items,practice){currentItems=items;return items.map((it,i)=>itemHtml(it,i,practice)).join("")}
 function todayHtml(){
@@ -136,7 +138,7 @@ function wordsHtml(){
   '<label>Better English<textarea name="better" maxlength="2000">'+esc(word.better||"")+'</textarea></label>'+
   input("scene","Scene")+input("note","What changed?")+
   '<label>Date<input type="date" name="date" value="'+esc(word.date||Core.dayStamp())+'"></label>'+
-  '<div class="row"><button class="primary" type="submit">'+(editingWord?"Save changes":"Save expression")+'</button>'+
+  '<div class="row"><button class="primary" type="submit">'+(editingWord?"Save changes":"Save expression")+'</button><button type="button" data-action="transcribe">🎙 Transcribe First Try</button>'+
   (editingWord?'<button type="button" data-action="cancel-word">Cancel</button>':"")+'</div></form></section>'+
   '<section class="card"><h2>Saved expressions</h2>'+
   (Object.keys(history).length?'<p class="muted">'+Object.keys(history).length+' days of practice imported from the original Lynn English.</p>':"")+
@@ -187,10 +189,39 @@ function session(title,context){
  navigator.mediaSession.setActionHandler("stop",stop);}catch(e){}
 }
 function stop(){
+ cancelRecognition();
  playToken++;queue=[];queuePos=0;playingId="";audioActive=false;media.onended=null;media.pause();media.loop=false;
  try{media.currentTime=0}catch(e){}
  if("speechSynthesis" in window)window.speechSynthesis.cancel();
  markPlaying();
+}
+function cancelRecognition(){
+ if(!recognition)return;
+ const active=recognition;
+ recognition=null;
+ active.abort();
+}
+function transcribe(field){
+ if(!field)return;
+ const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SpeechRecognition){notice("Speech transcription is unavailable here. You can type what you said.");field.focus();return}
+ stop();
+ let attempt;
+ try{
+  attempt=new SpeechRecognition();
+  recognition=attempt;
+  attempt.lang="en-US";
+  attempt.interimResults=false;
+  attempt.onresult=event=>{
+   if(recognition!==attempt||!field.isConnected)return;
+   field.value=event.results[0][0].transcript.slice(0,2000);
+   notice("Transcript ready. Check or edit what the browser heard.");
+  };
+  attempt.onerror=()=>{if(recognition===attempt)notice("Transcription was not available. Try again or type what you said.")};
+  attempt.onend=()=>{if(recognition===attempt)recognition=null};
+  attempt.start();
+  notice("Listening for English. Your browser may use its speech service.");
+ }catch(e){recognition=null;notice("Microphone could not start. You can type what you said.")}
 }
 function finishPlayback(msg){
  audioActive=false;playingId="";markPlaying();notice(msg);
@@ -365,6 +396,7 @@ $("nav").addEventListener("click",e=>{
 $("content").addEventListener("click",e=>{
  const b=e.target.closest("button[data-action]");if(!b)return;
  const action=b.dataset.action,i=Number(b.dataset.index),it=currentItems[i];
+ if(action==="transcribe"){transcribe(b.closest("form")?.querySelector('[name="first"]')||b.closest("details")?.querySelector("textarea"));return}
  if(action==="open-words"){setView("words");return}
  if(action==="cancel-word"){editingWord="";render();return}
  if(action==="read"){
