@@ -191,7 +191,7 @@ function cleanProgress(data){
   if(["__proto__","constructor","prototype"].includes(k)||!p||typeof p!=="object"||typeof p.due!=="string")continue;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(p.due))continue;
   result[k]={streak:Math.max(0,Number(p.streak)||0),interval:Math.max(1,Number(p.interval)||1),
-   mastered:!!p.mastered,due:p.due,lastReviewed:String(p.lastReviewed||""),reviews:Math.max(0,Number(p.reviews)||0)};
+   mastered:!!p.mastered,due:p.due,firstReviewed:String(p.firstReviewed||p.lastReviewed||""),lastReviewed:String(p.lastReviewed||""),reviews:Math.max(0,Number(p.reviews)||0)};
  }
  return result;
 }
