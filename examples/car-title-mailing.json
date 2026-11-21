@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "tracks": [
+    {
+      "id": "life-post-office-car-title",
+      "channel": "life",
+      "title": "Mailing a Car Title",
+      "meta": "Life · Post Office · Real conversation",
+      "sentences": [
+        {
+          "id": "s1",
+          "en": "Hi, I need to mail this car title.",
+          "zh": "你好，我需要邮寄这份汽车产权证。"
+        },
+        {
+          "id": "s2",
+          "en": "Is it okay to send it like this?",
+          "zh": "这样寄可以吗？"
+        },
+        {
+          "id": "s3",
+          "en": "Could you please help me seal the envelope?",
+          "zh": "你能帮我封好信封吗？"
+        },
+        {
+          "id": "s4",
+          "en": "I'd like a tracking number, please.",
+          "zh": "我想要一个追踪号码，谢谢。"
+        },
+        {
+          "id": "s5",
+          "en": "How long will delivery take?",
+          "zh": "大约需要多久能送到？"
+        }
+      ]
+    }
+  ]
+}
