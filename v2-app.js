@@ -133,12 +133,14 @@ function masteredHtml(){
 function wordsHtml(){
  const word=words.find(w=>w.id===editingWord)||{};
  const input=(key,label,max=2000)=>'<label>'+label+'<input name="'+key+'" maxlength="'+max+'" value="'+esc(word[key]||"")+'"></label>';
- return '<section class="card"><h2>Lynn’s Words</h2><form id="wordForm" class="word-form">'+
-  '<label>My First Try<textarea name="first" required maxlength="2000">'+esc(word.first||"")+'</textarea></label>'+
-  '<label>Better English<textarea name="better" maxlength="2000">'+esc(word.better||"")+'</textarea></label>'+
+ return '<section class="card"><h2>Lynn’s Words</h2><p class="muted">Speak first. Your words do not need to be perfect.</p><form id="wordForm" class="word-form">'+
+  '<div class="voice-entry"><button type="button" class="voice-button" data-action="transcribe" aria-pressed="false">🎙 Speak My First Try · 点击说英语</button>'+
+  '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Tap the microphone and speak English. Your words will appear below. Typing is always an option.</div></div>'+
+  '<label>My First Try<textarea name="first" required maxlength="2000" placeholder="Say or type your first English attempt…">'+esc(word.first||"")+'</textarea></label>'+
+  '<label>Better English (optional)<textarea name="better" maxlength="2000" placeholder="You can add a more natural version later.">'+esc(word.better||"")+'</textarea></label>'+
   input("scene","Scene")+input("note","What changed?")+
   '<label>Date<input type="date" name="date" value="'+esc(word.date||Core.dayStamp())+'"></label>'+
-  '<div class="row"><button class="primary" type="submit">'+(editingWord?"Save changes":"Save expression")+'</button><button type="button" data-action="transcribe">🎙 Transcribe First Try</button>'+
+  '<div class="row"><button class="primary" type="submit">'+(editingWord?"Save changes":"Save expression")+'</button>'+
   (editingWord?'<button type="button" data-action="cancel-word">Cancel</button>':"")+'</div></form></section>'+
   '<section class="card"><h2>Saved expressions</h2>'+
   (Object.keys(history).length?'<p class="muted">'+Object.keys(history).length+' days of practice imported from the original Lynn English.</p>':"")+
@@ -201,27 +203,73 @@ function cancelRecognition(){
  recognition=null;
  active.abort();
 }
+function voiceFeedback(state,message){
+ const status=$("voiceStatus"),button=document.querySelector?.(".voice-button");
+ if(status){status.textContent=message;status.dataset.state=state}
+ if(button){
+  button.textContent=state==="listening"?"■ Stop listening · 结束说话":"🎙 Speak My First Try · 点击说英语";
+  button.setAttribute("aria-pressed",String(state==="listening"));
+ }
+}
+function speechError(code){
+ if(code==="not-allowed")return "Microphone access was blocked. Allow microphone permission in your browser, or use keyboard dictation / typing.";
+ if(code==="service-not-allowed")return "This browser's speech service is unavailable. Use your keyboard microphone (Windows: Win + H) or type.";
+ if(code==="network")return "The browser could not reach its speech recognition service. Try another browser or use keyboard dictation.";
+ if(code==="audio-capture")return "No microphone could be accessed. Check your microphone settings or use keyboard dictation.";
+ if(code==="no-speech")return "I did not hear speech. Tap the microphone to try again, or type.";
+ if(code==="language-not-supported")return "English recognition is not supported by this browser. Please type your first try.";
+ return "Speech recognition could not start or finish. Use your keyboard microphone (Windows: Win + H) or type.";
+}
 function transcribe(field){
  if(!field)return;
+ if(recognition){
+  cancelRecognition();
+  voiceFeedback("idle","Stopped listening. You can edit the text below or try again.");
+  return;
+ }
  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
- if(!SpeechRecognition){notice("Speech transcription is unavailable here. You can type what you said.");field.focus();return}
+ if(!SpeechRecognition){
+  const msg="Speech recognition is unavailable in this browser. Try your keyboard's microphone (Windows: Win + H) or type below.";
+  voiceFeedback("error",msg);notice(msg);field.focus();return;
+ }
  stop();
- let attempt;
+ let attempt,gotResult=false;
  try{
   attempt=new SpeechRecognition();
   recognition=attempt;
   attempt.lang="en-US";
   attempt.interimResults=false;
+  attempt.continuous=false;
+  attempt.onstart=()=>{
+   if(recognition===attempt)voiceFeedback("listening","🎙 Listening now... Say one English sentence. Tap the button again to stop.");
+  };
   attempt.onresult=event=>{
    if(recognition!==attempt||!field.isConnected)return;
+   gotResult=true;
    field.value=event.results[0][0].transcript.slice(0,2000);
+   voiceFeedback("done","Your spoken English is written below. Check it, then save. No audio recording is stored.");
    notice("Transcript ready. Check or edit what the browser heard.");
   };
-  attempt.onerror=()=>{if(recognition===attempt)notice("Transcription was not available. Try again or type what you said.")};
-  attempt.onend=()=>{if(recognition===attempt)recognition=null};
+  attempt.onerror=event=>{
+   if(recognition!==attempt)return;
+   const msg=speechError(event?.error);
+   voiceFeedback("error",msg);notice(msg);
+  };
+  attempt.onend=()=>{
+   if(recognition!==attempt)return;
+   recognition=null;
+   if($("voiceStatus")?.dataset.state==="listening"){
+    voiceFeedback("idle",gotResult?"Transcript captured.":"Listening ended without a transcript. You can try again or type.");
+   }
+  };
   attempt.start();
+  voiceFeedback("listening","🎙 Listening for English... Speak now. If prompted, allow microphone access.");
   notice("Listening for English. Your browser may use its speech service.");
- }catch(e){recognition=null;notice("Microphone could not start. You can type what you said.")}
+ }catch(e){
+  recognition=null;
+  const msg=speechError("start");
+  voiceFeedback("error",msg);notice(msg);
+ }
 }
 function finishPlayback(msg){
  audioActive=false;playingId="";markPlaying();notice(msg);
