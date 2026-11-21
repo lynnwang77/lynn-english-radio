@@ -91,7 +91,7 @@
     }
     return result;
   }
-  function todayPlan(items, progress, channel, today, maxDue = 8, maxNew = 3) {
+  function todayPlan(items, progress, channel, today, maxDue = 8, maxNew = 3, favoriteKeys = []) {
     const pool = items.filter(it => it.t.channel === channel && it.status === "current");
     const due = pool.filter(it => progress[it.id] && progress[it.id].due <= today)
       .sort((a, b) => progress[a.id].due.localeCompare(progress[b.id].due)).slice(0, maxDue);
@@ -99,8 +99,11 @@
     // Let the newest imported real-life lesson appear today, ahead of older unstarted material.
     const imports = unreviewed.filter(it => !!it.t.id);
     const latestId = imports.length ? imports[imports.length - 1].t.id : null;
+    const stars = new Set(favoriteKeys);
+    const favorites = unreviewed.filter(it => !it.t.id && stars.has(legacyKey(it.t, it.s)));
     const prioritized = imports.filter(it => it.t.id === latestId)
-      .concat(imports.filter(it => it.t.id !== latestId), unreviewed.filter(it => !it.t.id));
+      .concat(imports.filter(it => it.t.id !== latestId), favorites,
+        unreviewed.filter(it => !it.t.id && !stars.has(legacyKey(it.t, it.s))));
     const fresh = prioritized.slice(0, Math.min(maxNew, Math.max(0, 10 - due.length)));
     return {due, fresh, all: due.concat(fresh)};
   }
