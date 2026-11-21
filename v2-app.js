@@ -201,7 +201,7 @@ async function restoreBackup(file){
   const data=JSON.parse(await file.text());
   if(!data||data.app!=="lynn-english-radio"||data.version!==2||!data.v2||!Array.isArray(data.v2.importedTracks))
     throw new Error("Not a Lynn English Radio 2.0 backup.");
-  const parsed=Core.normalizeImport({version:1,tracks:data.v2.importedTracks.map(t=>({...t,status:"inbox"}))},allTracks());
+  const parsed=data.v2.importedTracks.length ? Core.normalizeImport({version:1,tracks:data.v2.importedTracks.map(t=>({...t,status:"inbox"}))},allTracks()) : {tracks:[],skipped:0};
   const incoming=cleanProgress(data.v2.progress),status=validMap(data.v2.trackStatus);
   const mergedTracks=imported.concat(parsed.tracks);
   const mergedProgress={...progress};
