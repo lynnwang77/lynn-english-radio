@@ -54,14 +54,14 @@ function itemHtml(it,i,practice){
 function listItems(items,practice){currentItems=items;return items.map((it,i)=>itemHtml(it,i,practice)).join("")}
 function statsHtml(){
  const ents=allEntries().filter(e=>e.t.channel===channel&&e.status==="current");
- const p=Core.todayPlan(ents,progress,channel,Core.dayStamp());
+ const p=Core.todayPlan(ents,progress,channel,Core.dayStamp(),8,3,favorites);
  const done=ents.filter(e=>progress[e.id]&&progress[e.id].lastReviewed===Core.dayStamp()).length;
  return '<div class="stats"><div class="stat"><strong>'+p.due.length+'</strong>Due today</div>'+
    '<div class="stat"><strong>'+p.fresh.length+'</strong>New picks</div>'+
    '<div class="stat"><strong>'+done+'</strong>Reviewed today</div></div>';
 }
 function todayHtml(){
- const plan=Core.todayPlan(allEntries(),progress,channel,Core.dayStamp());
+ const plan=Core.todayPlan(allEntries(),progress,channel,Core.dayStamp(),8,3,favorites);
  let html=statsHtml()+'<section class="card"><h2>Today · 10–15 minutes</h2><p class="muted">Listen → say it yourself → reveal → rate how easily you remembered. Ratings schedule the next review.</p>';
  if(!plan.all.length)return html+'<div class="empty">You are caught up for today. Explore the Library, or come back tomorrow.</div></section>';
  return html+listItems(plan.all,true)+'</section>';
