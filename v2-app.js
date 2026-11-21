@@ -10,6 +10,7 @@ const $=id=>document.getElementById(id);
 const STORAGE={imported:"lynn.v2.importedTracks",progress:"lynn.v2.progress",overrides:"lynn.v2.trackStatus",
  words:"lynn.unified.words",history:"lynn.unified.legacyDays"};
 const DAY_KEY="lynn.unified.today";
+const WORD_EDIT_KEY="lynn.unified.wordEdit";
 const WORD_DRAFT_KEY="lynn.unified.wordDraft";
 function get(key,fallback){try{let x=localStorage.getItem(key);return x===null?fallback:JSON.parse(x)}catch(e){return fallback}}
 function raw(key,fallback){try{return localStorage.getItem(key)||fallback}catch(e){return fallback}}
@@ -25,8 +26,10 @@ let progress=cleanProgress(get(STORAGE.progress,{}));
 let overrides=validMap(get(STORAGE.overrides,{}));
 function loadWords(){try{return Core.normalizeWords(get(STORAGE.words,[]))}catch(e){return []}}
 let words=loadWords(),history=validMap(get(STORAGE.history,{})),editingWord="";
+let wordEdit=validMap(get(WORD_EDIT_KEY,{}));
+if(words.some(w=>w.id===wordEdit.id))editingWord=wordEdit.id;
 let channel=["work","life","bible"].includes(raw("lynn.area",raw("channel","life")))?raw("lynn.area",raw("channel","life")):"life";
-let mode="study",view="today",selectedTrack="",libraryFilter="current",query="",topic="",showZh=raw("zh","on")!=="off";
+let mode="study",view=editingWord?"words":"today",selectedTrack="",libraryFilter="current",query="",topic="",showZh=raw("zh","on")!=="off";
 let assignment=get(DAY_KEY,null);
 let revealed=new Set(), currentItems=[], queue=[],queuePos=0,loopQueue=false,playToken=0,playingId="";
 const media=$("player");media.preload="metadata";media.setAttribute("playsinline","");
@@ -137,7 +140,9 @@ function isIOSBrowser(){
 }
 function wordsHtml(){
  const saved=words.find(w=>w.id===editingWord);
- const word=saved||validMap(get(WORD_DRAFT_KEY,{}));
+ const edit=saved&&wordEdit.id===saved.id?wordEdit:{};
+ const word=saved?{...saved,...edit.fields,first:saved.first}:validMap(get(WORD_DRAFT_KEY,{}));
+ const waiting=edit.stage==="waiting",filled=edit.stage==="filled";
  const input=(key,label,max=2000)=>'<label>'+label+'<input name="'+key+'" maxlength="'+max+'" value="'+esc(word[key]||"")+'"></label>';
  return '<section class="card"><h2>Lynn’s Words</h2><p class="muted">Speak first. Your words do not need to be perfect.</p><form id="wordForm" class="word-form">'+
   (saved?'<p class="muted">Your saved first try is kept as originally entered.</p>':isIOSBrowser()?
@@ -146,20 +151,24 @@ function wordsHtml(){
    '<div class="voice-entry"><button type="button" class="voice-button" data-action="transcribe" aria-pressed="false">🎙 Speak My First Try · 点击说英语</button>'+
    '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Speaking may use your browser’s speech service. You can also type or use keyboard dictation (Windows: Win + H).</div></div>')+
   '<label>My First Try<textarea name="first" required maxlength="2000" '+(saved?'readonly':'')+' placeholder="Say or type your first English attempt…">'+esc(word.first||"")+'</textarea></label>'+
-  '<p class="muted">Your draft saves on this device as you speak or type.</p>'+
-  '<div class="row"><button type="button" class="primary" data-action="coach-open">Improve My English</button></div>'+
-  '<section id="coachPanel" class="reading" hidden><h3>Improve with ChatGPT</h3>'+
-  '<p>Review the request, then copy it to ChatGPT and send it yourself. You can remove names or private details before copying.</p>'+
-  '<label>Request for ChatGPT<textarea id="coachPrompt" rows="5"></textarea></label>'+
-  '<div class="row"><button type="button" data-action="coach-copy">Copy request</button><a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT ↗</a></div>'+
-  '<label>ChatGPT reply<textarea id="coachReply" rows="4" placeholder="Paste the JSON reply here"></textarea></label>'+
-  '<div class="row"><button type="button" data-action="coach-apply">Fill editable fields</button></div>'+
-  '<p id="coachStatus" role="status" aria-live="polite"></p></section>'+
-  '<label>Better English (optional)<textarea name="better" maxlength="2000" placeholder="You can add a more natural version later.">'+esc(word.better||"")+'</textarea></label>'+
-  input("scene","Scene")+'<label>What changed?<textarea name="note" maxlength="2000">'+esc(word.note||"")+'</textarea></label>'+
-  '<label>Date<input type="date" name="date" value="'+esc(word.date||Core.dayStamp())+'"></label>'+
-  '<div class="row"><button class="primary" type="submit">'+(editingWord?"Save changes":"Save expression")+'</button>'+
-  (editingWord?'<button type="button" data-action="cancel-word">Cancel</button>':"")+'</div></form></section>'+
+  '<p id="wordStatus" class="muted" role="status">'+(saved?"原句已保存":word.first?"草稿已保存到本机":"开口说一句，文字会自动保存为草稿。")+'</p>'+
+  (!waiting?'<div class="row"><button type="button" class="primary" data-action="coach-open">'+(filled?"再向 ChatGPT 请教":"Improve My English")+'</button></div>':"")+
+  '<section id="coachPanel" class="reading" '+(waiting?"":"hidden")+'><h3>从 ChatGPT 带回修改</h3>'+
+  '<p>复制请求，在 ChatGPT 粘贴并发送。然后复制完整回复，回到本页粘贴。</p>'+
+  '<div class="row"><button type="button" data-action="coach-copy-open">复制请求并打开 ChatGPT ↗</button> <a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">打开 ChatGPT</a></div>'+
+  '<details id="coachRequest"><summary>查看或删去请求中的私人细节</summary>'+
+  '<label>发给 ChatGPT 的请求<textarea id="coachPrompt" rows="5">'+esc(saved?Core.coachPrompt(saved.first,word.scene):"")+'</textarea></label>'+
+  '<div class="row"><button type="button" data-action="coach-copy">只复制请求</button></div></details>'+
+  '<label id="coachReplyLabel">在这里粘贴 ChatGPT 的完整回复<textarea id="coachReply" rows="3" maxlength="12000" placeholder="粘贴后自动填入三个字段">'+esc(edit.reply||"")+'</textarea></label>'+
+  '<p id="coachStatus" role="status" aria-live="polite">'+(waiting?(edit.reply?"已暂存回复。请粘贴 ChatGPT 的完整 JSON 回复。":"原句已保存，可以随时回来。"):"")+'</p></section>'+
+  (filled?'<p role="status">三个字段已填入。检查后点「保存修改」。</p>':"")+
+  '<details class="reading" id="wordResults" '+(filled||edit.stage==="manual"?"open":"")+'><summary>查看或手动填写修改</summary>'+
+  '<label>Better English · 修改后的英文句子<textarea name="better" maxlength="2000">'+esc(word.better||"")+'</textarea></label>'+
+  '<label>What changed? · 修改原因<textarea name="note" maxlength="2000" placeholder="例如：用 went 表达过去。">'+esc(word.note||"")+'</textarea></label>'+
+  input("scene","Scene · 使用场景")+
+  '<label>Date<input type="date" name="date" value="'+esc(word.date||Core.dayStamp())+'"></label></details>'+
+  '<div class="row"><button class="primary" type="submit">'+(editingWord?"保存修改 · Save changes":"只保存原句")+'</button>'+
+  (editingWord?'<button type="button" data-action="cancel-word">退出编辑</button>':"")+'</div></form></section>'+
   '<section class="card"><h2>Saved expressions</h2>'+
   (Object.keys(history).length?'<p class="muted">'+Object.keys(history).length+' days of practice imported from the original Lynn English.</p>':"")+
   (words.length?words.slice().reverse().map(w=>'<article class="sentence" data-id="word:'+esc(w.id)+'"><div class="meta">'+esc(w.date)+' '+esc(w.scene)+'</div>'+
@@ -482,8 +491,22 @@ async function restoreBackup(file){
 function wordFields(form){
  return Object.fromEntries(new FormData(form));
 }
+function persistWordEdit(next){
+ wordEdit=next;
+ return save(WORD_EDIT_KEY,next);
+}
+function closeWordEditor(){
+ editingWord="";
+ persistWordEdit({});
+}
 function rememberWordDraft(form){
- if(form?.id==="wordForm"&&!editingWord)save(WORD_DRAFT_KEY,wordFields(form));
+ if(form?.id!=="wordForm")return;
+ const fields=wordFields(form);
+ if(editingWord){persistWordEdit({...wordEdit,id:editingWord,fields});return}
+ if(save(WORD_DRAFT_KEY,fields)){
+  const status=$("wordStatus");
+  if(status)status.textContent=fields.first.trim()?"草稿已保存到本机":"开口说一句，文字会自动保存为草稿。";
+ }
 }
 function saveWord(form){
  const fields=wordFields(form);
@@ -503,38 +526,37 @@ function saveWord(form){
 function openCoach(form){
  if(!form.elements.first.value.trim()){form.elements.first.focus();notice("Say or type your first try first.");return}
  cancelRecognition();
- let word=words.find(w=>w.id===editingWord);
- if(!word){
-  word=saveWord(form);
-  if(!word)return;
-  editingWord=word.id;
-  render();
- }
- $("coachPrompt").value=Core.coachPrompt(word.first,$("wordForm").elements.scene.value.trim());
- $("coachPanel").hidden=false;
- $("coachPrompt").focus();
- $("coachStatus").textContent="First try saved. Review the request before sharing.";
+ const fields=wordFields(form);
+ const word=words.find(w=>w.id===editingWord)||saveWord(form);
+ if(!word)return;
+ editingWord=word.id;
+ persistWordEdit({id:word.id,stage:"waiting",fields});
+ render();
 }
-async function copyCoachRequest(){
+async function copyCoachRequest(openChat=false){
  const field=$("coachPrompt"),status=$("coachStatus");
  try{
   await navigator.clipboard.writeText(field.value);
-  status.textContent="Copied. Open ChatGPT, paste and send.";
+  status.textContent="请求已复制。到 ChatGPT 粘贴并发送，再回来粘贴完整回复。";
+  if(openChat)window.open("https://chatgpt.com/","_blank","noopener,noreferrer");
  }catch(e){
+  $("coachRequest").open=true;
   field.focus();field.select();
-  status.textContent="Copy the selected request, then paste it into ChatGPT.";
+  status.textContent="请手动复制选中的请求，再点「打开 ChatGPT」。";
  }
 }
-function applyCoachReply(form){
- const status=$("coachStatus");
- try{
-  const fields=Core.coachReply($("coachReply").value);
-  if(Object.entries(fields).some(([key,value])=>form.elements[key].value.trim()&&form.elements[key].value.trim()!==value)&&
-     !window.confirm("Replace the current Better English, What changed? and Scene fields? Your first try stays saved."))return;
-  for(const [key,value] of Object.entries(fields))form.elements[key].value=value;
-  status.textContent="Fields filled. Check, edit, then choose Save changes.";
-  form.elements.better.focus();
- }catch(e){status.textContent="Copy the complete JSON reply from ChatGPT and try again. You can also fill the fields yourself."}
+function applyCoachReply(field){
+ const form=field.form;
+ const reply=field.value.slice(0,12000);
+ let result;
+ try{result=Core.coachReply(reply)}catch(e){
+  persistWordEdit({...wordEdit,reply});
+  $("coachStatus").textContent=reply.trim()?"请粘贴 ChatGPT 的完整 JSON 回复。原句和已有修改已保留。":"在这里粘贴完整回复。";
+  return;
+ }
+ persistWordEdit({id:editingWord,stage:"filled",fields:{...wordFields(form),...result}});
+ render();
+ $("wordResults").scrollIntoView?.({block:"nearest"});
 }
 $("nav").addEventListener("click",e=>{
  const b=e.target.closest("button");if(!b)return;
@@ -547,11 +569,11 @@ $("content").addEventListener("click",e=>{
  const action=b.dataset.action,i=Number(b.dataset.index),it=currentItems[i];
  if(action==="coach-open"){try{openCoach(b.form)}catch(error){notice(error.message)}return}
  if(action==="coach-copy"){void copyCoachRequest();return}
- if(action==="coach-apply"){applyCoachReply(b.form);return}
+ if(action==="coach-copy-open"){void copyCoachRequest(true);return}
  if(action==="dictate"){dictateWithKeyboard(b.closest("form")?.querySelector('[name="first"]'));return}
  if(action==="transcribe"){transcribe(b.closest("form")?.querySelector('[name="first"]')||b.closest("details")?.querySelector("textarea"));return}
  if(action==="open-words"){setView("words");return}
- if(action==="cancel-word"){editingWord="";render();return}
+ if(action==="cancel-word"){if(window.confirm("退出编辑并丢弃尚未保存的修改？原句和已保存版本会保留。")){closeWordEditor();render()}return}
  if(action==="read"){
   const track=allTracks().find(t=>Core.trackId(t)===selectedTrack);
   const field=b.dataset.field;
@@ -559,7 +581,12 @@ $("content").addEventListener("click",e=>{
   return;
  }
  const word=words.find(w=>w.id===b.dataset.word);
- if(action==="edit-word"&&word){editingWord=word.id;render();return}
+ if(action==="edit-word"&&word){
+  if(editingWord&&editingWord!==word.id&&!window.confirm("切换表达并丢弃尚未保存的修改？"))return;
+  editingWord=word.id;
+  if(wordEdit.id!==word.id)persistWordEdit({id:word.id,stage:"manual"});
+  render();return;
+ }
  if(action==="listen-word"&&word){playQueue([wordEntry(word)],false);return}
  if(action==="review-word"&&word){
   const next=words.map(w=>w.id===word.id?{...w,review:!w.review}:w);
@@ -603,7 +630,7 @@ $("content").addEventListener("submit",event=>{
  if(event.target.id!=="wordForm")return;
  event.preventDefault();
  try{
-  if(saveWord(event.target)){editingWord="";render();notice("Expression saved in Lynn’s Words.")}
+  if(saveWord(event.target)){closeWordEditor();render();notice("最终版本已保存 · Expression saved.")}
  }catch(e){notice(e.message)}
 });
 $("importBtn").onclick=()=>$("importFile").click();
@@ -619,6 +646,7 @@ $("content").addEventListener("change",e=>{
  if(e.target.id==="topic"){topic=e.target.value;selectedTrack="";render()}
 });
 $("content").addEventListener("input",e=>{
+ if(e.target.id==="coachReply"&&editingWord){applyCoachReply(e.target);return}
  if(e.target.form?.id==="wordForm"&&e.target.name)rememberWordDraft(e.target.form);
  if(e.target.id==="search"){let pos=e.target.selectionStart;query=e.target.value;render();let input=$("search");if(input){input.focus();input.setSelectionRange(pos,pos)}}
 });

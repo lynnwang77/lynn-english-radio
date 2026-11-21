@@ -62,24 +62,32 @@ test("coach saves the first attempt, fills editable fields and preserves review 
   const form={id:"wordForm",fields,elements:Object.fromEntries(Object.keys(fields).map(key=>[key,{
     get value(){return fields[key]},set value(value){fields[key]=value},focus(){}
   }]))};
-  ui.element("wordForm").elements=form.elements;
-  ui.element("coachPrompt").focus=()=>{};
   const click=action=>ui.els.content.listeners.click({target:{closest:()=>({dataset:{action},form})}});
   ui.els.content.listeners.input({target:{form,name:"first"}});
   assert.equal(JSON.parse(ui.db["lynn.unified.wordDraft"]).first,fields.first);
   click("coach-open");
-  assert.match(ui.element("coachPrompt").value,/I go library yesterday/);
+  assert.match(ui.els.content.innerHTML,/I go library yesterday/);
   assert.match(ui.els.content.innerHTML,/name="first"[^>]*readonly/);
   const stored=()=>JSON.parse(ui.db["lynn.unified.words"])[0];
   assert.equal(stored().first,"I go library yesterday.");
-  ui.element("coachReply").value='{"better":"I went to the library yesterday.","note":"用 went 表达过去。","scene":"Library · 图书馆","first":"overwrite"}';
-  click("coach-apply");
-  assert.equal(fields.better,"I went to the library yesterday.");
+  const resumed=boot(ui.db);
+  assert.match(resumed.els.content.innerHTML,/<section id="coachPanel" class="reading" >/);
+  const paste=value=>ui.els.content.listeners.input({target:{id:"coachReply",form,value}});
+  paste('{"better":"incomplete"}');
+  assert.match(ui.element("coachStatus").textContent,/完整 JSON/);
+  assert.match(boot(ui.db).els.content.innerHTML,/incomplete/);
+  paste('{"better":"I went to the library yesterday.","note":"用 went 表达过去。","scene":"Library · 图书馆","first":"overwrite"}');
+  const edit=JSON.parse(ui.db["lynn.unified.wordEdit"]);
+  assert.equal(edit.stage,"filled");
+  assert.equal(edit.fields.better,"I went to the library yesterday.");
+  assert.match(boot(ui.db).els.content.innerHTML,/id="wordResults" open/);
   assert.equal(stored().better,"");
-  fields.first="overwrite";
+  Object.assign(fields,edit.fields,{first:"overwrite"});
   ui.els.content.listeners.submit({target:form,preventDefault(){}});
   assert.equal(stored().first,"I go library yesterday.");
   assert.equal(stored().better,fields.better);
+  assert.deepEqual(JSON.parse(ui.db["lynn.unified.wordEdit"]),{});
+  assert.match(ui.els.status.textContent,/最终版本已保存/);
   assert.equal(stored().review,false);
 });
 
