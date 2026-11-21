@@ -1,0 +1,44 @@
+name: Validate Lynn English Radio 2.0
+on:
+  push:
+    branches:
+      - feature/lynn-english-radio-2
+  pull_request:
+    paths:
+      - "index.html"
+      - "v2-*.js"
+      - "v2.css"
+      - "tests/**"
+      - "examples/**"
+      - "audio/**"
+      - "tracks.js"
+      - "accounting.js"
+      - "track-audio.js"
+      - "sentence-audio.js"
+      - ".github/workflows/validate-v2.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run built-in offline tests
+        run: node --test tests/*.test.cjs
+      - name: Guard unchanged legacy course and audio sources
+        if: github.event_name == 'pull_request' || github.ref_name == 'feature/lynn-english-radio-2'
+        run: |
+          changed="$(git diff --name-only origin/main...HEAD -- tracks.js accounting.js track-audio.js sentence-audio.js audio/ audio-manifests/ v8.html .github/workflows/cache-audio.yml .github/workflows/build-v8-sentence-audio.yml .github/workflows/probe-ai-audio.yml .github/workflows/build-v8-ai-audio.yml)"
+          if [ -n "$changed" ]; then
+            echo "Legacy asset files must remain unchanged in phase 1:"
+            echo "$changed"
+            exit 1
+          fi
+          git diff --exit-code origin/main:index.html HEAD:index-v8.1.html
+          echo "Original lessons, audio files and maps untouched."
