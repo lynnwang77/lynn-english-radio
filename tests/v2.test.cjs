@@ -103,3 +103,25 @@ test("2.0 scripts parse, load in order and original player is saved",()=>{
   assert.ok(read("index-v8.1.html").includes("Current"));
   assert.ok(fs.existsSync(path.join(root,"v8.html")));
 });
+
+test("today keeps a real daily limit instead of infinitely refilling",()=>{
+  const {data,core}=setup();
+  const pool=core.entries(data,{}).filter(it=>it.t.channel==="life");
+  const p={};
+  const date="2026-11-21";
+  const first=core.todayPlan(pool,p,"life",date);
+  assert.equal(first.fresh.length,3);
+  first.fresh.forEach(it=>p[it.id]=core.grade(null,"good",date));
+  const second=core.todayPlan(pool,p,"life",date);
+  assert.equal(second.fresh.length,0);
+  const next=core.todayPlan(pool,p,"life","2026-11-22");
+  assert.ok(next.due.length>=3);
+  assert.ok(next.fresh.length>=1);
+});
+test("existing favorite cards are prioritized among old unstarted lessons",()=>{
+  const {data,core}=setup();
+  const items=core.entries(data,{});
+  const fav=items.find(it=>it.t.title==="Bank Account Opening"&&it.s.en.startsWith("He said"));
+  const result=core.todayPlan(items,{},"work","2026-11-21",8,3,new Set([core.legacyKey(fav.t,fav.s)]));
+  assert.equal(result.fresh[0].id,fav.id);
+});
