@@ -1,0 +1,39 @@
+name: Validate Lynn English Radio 2.0
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "v2-*.js"
+      - "v2.css"
+      - "tests/**"
+      - "examples/**"
+      - "audio/**"
+      - "tracks.js"
+      - "accounting.js"
+      - "track-audio.js"
+      - "sentence-audio.js"
+      - ".github/workflows/validate-v2.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run built-in offline tests
+        run: node --test tests/v2.test.cjs
+      - name: Guard unchanged legacy course and audio sources
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin main --depth=1
+          changed="$(git diff --name-only origin/main...HEAD -- tracks.js accounting.js track-audio.js sentence-audio.js audio/ audio-manifests/)"
+          if [ -n "$changed" ]; then
+            echo "Legacy asset files must remain unchanged in phase 1:"
+            echo "$changed"
+            exit 1
+          fi
+          echo "Original lessons, audio files and maps untouched."
