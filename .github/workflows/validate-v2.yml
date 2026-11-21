@@ -42,5 +42,5 @@ jobs:
             echo "$changed"
             exit 1
           fi
-          git diff --exit-code origin/main:index.html HEAD:index-v8.1.html
+          git diff --exit-code origin/main:index-v8.1.html HEAD:index-v8.1.html
           echo "Original lessons, audio files and maps untouched."
