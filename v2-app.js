@@ -3,9 +3,12 @@
 "use strict";
 const Core=window.LynnCore;
 const BASE=Array.isArray(window.LYNN_TRACKS)?window.LYNN_TRACKS:[];
+const CATALOG=Core.normalizeImport({version:1,tracks:window.LYNN_UNIFIED_LESSONS||[]},BASE,{backup:true}).tracks
+ .map(t=>({...t,status:"current"}));
 const A=window.LYNN_TRACK_AUDIO||{}, SA=window.LYNN_SENTENCE_AUDIO||{};
 const $=id=>document.getElementById(id);
-const STORAGE={imported:"lynn.v2.importedTracks",progress:"lynn.v2.progress",overrides:"lynn.v2.trackStatus"};
+const STORAGE={imported:"lynn.v2.importedTracks",progress:"lynn.v2.progress",overrides:"lynn.v2.trackStatus",
+ words:"lynn.unified.words",history:"lynn.unified.legacyDays"};
 const DAY_KEY="lynn.unified.today";
 function get(key,fallback){try{let x=localStorage.getItem(key);return x===null?fallback:JSON.parse(x)}catch(e){return fallback}}
 function raw(key,fallback){try{return localStorage.getItem(key)||fallback}catch(e){return fallback}}
@@ -19,6 +22,8 @@ const storedTracks=get(STORAGE.imported,[]);
 let imported=Array.isArray(storedTracks)?storedTracks:[];
 let progress=cleanProgress(get(STORAGE.progress,{}));
 let overrides=validMap(get(STORAGE.overrides,{}));
+function loadWords(){try{return Core.normalizeWords(get(STORAGE.words,[]))}catch(e){return []}}
+let words=loadWords(),history=validMap(get(STORAGE.history,{})),editingWord="";
 let channel=["work","life","bible"].includes(raw("lynn.area",raw("channel","life")))?raw("lynn.area",raw("channel","life")):"life";
 let mode="study",view="today",selectedTrack="",libraryFilter="current",query="",topic="",showZh=raw("zh","on")!=="off";
 let assignment=get(DAY_KEY,null);
@@ -29,8 +34,14 @@ const savedRate=Number(raw("rate","1.0"));
 rate.value=({0.85:"0.85",0.95:"0.95",1:"1.0",1.1:"1.1"})[savedRate]||"1.0";
 media.playbackRate=Number(rate.value);
 let audioActive=false;
-const allTracks=()=>BASE.concat(imported);
-function allEntries(){return Core.entries(allTracks(),overrides)}
+function catalogWith(lessons){return CATALOG.filter(t=>!lessons.some(item=>item.id===t.id))}
+const allTracks=()=>BASE.concat(catalogWith(imported),imported);
+function wordEntry(w){
+ const t={id:"personal-"+w.id,channel:"personal",title:"Lynn’s Words"};
+ const s={id:"answer",en:w.better||w.first,zh:w.scene||w.note||"Say your own expression from memory."};
+ return {t,s,id:"word:"+w.id,status:w.review?"current":"archive",personal:true};
+}
+function allEntries(){return Core.entries(allTracks(),overrides).concat(words.map(wordEntry))}
 function notice(msg){$("status").textContent=msg}
 function trackStatus(t){return overrides[Core.trackId(t)]||t.status||"current"}
 function changeStatus(t,status){
@@ -38,7 +49,7 @@ function changeStatus(t,status){
  if(!save(STORAGE.overrides,next))return false;
  overrides=next;return true;
 }
-function isFav(it){return favorites.has(Core.legacyKey(it.t,it.s))}
+function isFav(it){return !it.personal&&favorites.has(Core.legacyKey(it.t,it.s))}
 function markPlaying(){document.querySelectorAll(".sentence").forEach(x=>x.classList.toggle("playing",x.dataset.id===playingId))}
 function navi(){
  document.querySelectorAll("[data-mode]").forEach(b=>{b.classList.toggle("active",b.dataset.mode===mode);b.setAttribute("aria-pressed",String(b.dataset.mode===mode))});
@@ -58,8 +69,8 @@ function itemHtml(it,i,practice){
   '<div class="row">'+(practice&&!open?'<button class="primary" data-action="reveal" data-index="'+i+'">Show English · 查看答案</button>':"")+
   '<button data-action="play-one" data-index="'+i+'">▶ Listen</button>'+
   '<button data-action="loop-one" data-index="'+i+'">↻ Loop</button>'+
-  '<button class="'+(fav?"starred":"")+'" data-action="favorite" data-index="'+i+'">'+(fav?"★ Saved":"☆ Favorite")+'</button>'+
-  (!practice&&!r&&trackStatus(it.t)==="current"?'<button data-action="grade" data-choice="again" data-index="'+i+'">Start reviewing</button>':"")+
+  (!it.personal?'<button class="'+(fav?"starred":"")+'" data-action="favorite" data-index="'+i+'">'+(fav?"★ Saved":"☆ Favorite")+'</button>':"")+
+  (!practice&&!r&&trackStatus(it.t)==="current"&&mode==="study"?'<button data-action="grade" data-choice="again" data-index="'+i+'">Start reviewing</button>':"")+
   '</div>'+review+'</article>';
 }
 function listItems(items,practice){currentItems=items;return items.map((it,i)=>itemHtml(it,i,practice)).join("")}
@@ -75,8 +86,9 @@ function todayHtml(){
  const done=items.filter(it=>progress[it.id]?.lastReviewed===day).length;
  const stats='<div class="stats"><div class="stat"><strong>'+due.length+'</strong>Due today</div><div class="stat"><strong>'+fresh.length+'</strong>New picks</div><div class="stat"><strong>'+done+'</strong>Reviewed today</div></div>';
  let html=stats+'<section class="card"><h2>Today · 15 minutes</h2><p class="muted">Recall the English aloud, check the answer, listen or repeat, then rate your recall.</p>';
- if(!due.length&&!fresh.length)return html+'<div class="empty">You are caught up for today.</div></section>';
- return html+listItems(due.concat(fresh),true)+'</section>';
+ const talk='<section class="card"><h2>Talk · Say it your way</h2><p>Say or write one sentence about something that happened today.</p><div class="row"><button data-action="open-words">Open Lynn’s Words</button></div></section>';
+ if(!due.length&&!fresh.length)return html+'<div class="empty">You are caught up for today.</div></section>'+talk;
+ return html+listItems(due.concat(fresh),true)+'</section>'+talk;
 }
 function libraryHtml(){
  const available=allTracks().filter(t=>Core.area(t)===channel&&trackStatus(t)!=="inbox");
@@ -100,6 +112,10 @@ function libraryHtml(){
   '<div class="row"><button class="primary" data-action="play-track">▶ Play All</button><button data-action="loop-track">↻ Loop All</button>'+
   '<button data-action="toggle-archive" data-track="'+esc(Core.trackId(t))+'">'+(st==="archive"?"Restore to Current":"Move to Archive")+'</button></div></div>';
  const es=Core.entries([t],overrides);
+ if(t.context)html+='<p class="muted">'+esc(t.context)+'</p>';
+ for(const [label,body] of [["Read",t.reading],["Dialogue",t.dialogue]]){
+  if(body)html+='<details class="reading"><summary>'+label+'</summary><p>'+esc(body)+'</p><div class="row"><button data-action="read" data-field="'+(label==="Read"?"reading":"dialogue")+'">▶ Listen</button></div></details>';
+ }
  html+=listItems(es,false)+'</section>';return html;
 }
 function favoritesHtml(){
@@ -108,9 +124,28 @@ function favoritesHtml(){
  (es.length?listItems(es,false):'<div class="empty">Star a sentence in Library or Today to save it here.</div>')+'</section>';
 }
 function masteredHtml(){
- const es=allEntries().filter(it=>Core.area(it.t)===channel&&progress[it.id]?.mastered);
+ const es=allEntries().filter(it=>(it.personal||Core.area(it.t)===channel)&&progress[it.id]?.mastered);
  return '<section class="card"><h2>Mastered ✓</h2><p class="muted">These are strong sentences, not forgotten sentences. They return periodically for maintenance.</p>'+
  (es.length?listItems(es,false):'<div class="empty">Practice sentences several times or mark one Mastered after you can say it independently.</div>')+'</section>';
+}
+function wordsHtml(){
+ const word=words.find(w=>w.id===editingWord)||{};
+ const input=(key,label,max=2000)=>'<label>'+label+'<input name="'+key+'" maxlength="'+max+'" value="'+esc(word[key]||"")+'"></label>';
+ return '<section class="card"><h2>Lynn’s Words</h2><form id="wordForm" class="word-form">'+
+  '<label>My First Try<textarea name="first" required maxlength="2000">'+esc(word.first||"")+'</textarea></label>'+
+  '<label>Better English<textarea name="better" maxlength="2000">'+esc(word.better||"")+'</textarea></label>'+
+  input("scene","Scene")+input("note","What changed?")+
+  '<label>Date<input type="date" name="date" value="'+esc(word.date||Core.dayStamp())+'"></label>'+
+  '<div class="row"><button class="primary" type="submit">'+(editingWord?"Save changes":"Save expression")+'</button>'+
+  (editingWord?'<button type="button" data-action="cancel-word">Cancel</button>':"")+'</div></form></section>'+
+  '<section class="card"><h2>Saved expressions</h2>'+
+  (Object.keys(history).length?'<p class="muted">'+Object.keys(history).length+' days of practice imported from the original Lynn English.</p>':"")+
+  (words.length?words.slice().reverse().map(w=>'<article class="sentence" data-id="word:'+esc(w.id)+'"><div class="meta">'+esc(w.date)+' '+esc(w.scene)+'</div>'+
+   '<p><strong>My First Try</strong><br>'+esc(w.first)+'</p>'+
+   (w.better?'<p><strong>Better English</strong><br>'+esc(w.better)+'</p>':"")+
+   (w.note?'<p class="muted">'+esc(w.note)+'</p>':"")+
+   '<div class="row"><button data-action="listen-word" data-word="'+esc(w.id)+'">▶ Listen</button><button data-action="edit-word" data-word="'+esc(w.id)+'">Edit</button><button data-action="review-word" data-word="'+esc(w.id)+'">'+(w.review?"Remove from review":"Add to review")+'</button></div></article>').join(""):'<div class="empty">Save an expression in your own words.</div>')+
+  '</section>';
 }
 function inboxHtml(){
  const tracks=imported.filter(t=>Core.area(t)===channel&&trackStatus(t)==="inbox");
@@ -129,7 +164,7 @@ function render(){
  navi();
  $("zhbtn").textContent="中文 "+(showZh?"On":"Off");
  currentItems=[];
- $("content").innerHTML=view==="today"?todayHtml():view==="library"?libraryHtml():view==="favorites"?favoritesHtml():view==="inbox"?inboxHtml():masteredHtml();
+ $("content").innerHTML=view==="today"?todayHtml():view==="library"?libraryHtml():view==="favorites"?favoritesHtml():view==="inbox"?inboxHtml():view==="words"?wordsHtml():masteredHtml();
  markPlaying();
 }
 function setView(v){stop();view=v;if(v==="today")mode="study";revealed.clear();render()}
@@ -201,7 +236,8 @@ function exportBackup(){
  const legacy={};keys.forEach(k=>{try{legacy[k]=localStorage.getItem(k)}catch(e){legacy[k]=null}});
  legacy.favorites=JSON.stringify([...favorites]);
  const backup={app:"lynn-english-radio",version:2,exportedAt:new Date().toISOString(),legacy,
-  v2:{importedTracks:imported,progress,trackStatus:overrides}};
+  v2:{importedTracks:imported,progress,trackStatus:overrides},
+  unified:{words,history}};
  const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
  const url=URL.createObjectURL(blob),a=document.createElement("a");
  a.href=url;a.download="lynn-english-radio-backup-"+Core.dayStamp()+".json";
@@ -255,23 +291,49 @@ function saveRestore(values){
   return false;
  }
 }
+function cleanHistory(value){
+ return Object.fromEntries(Object.entries(validMap(value)).filter(([key,steps])=>
+  isReviewDate(key)&&Array.isArray(steps)).map(([key,steps])=>
+  [key,[...new Set(steps.filter(step=>Number.isInteger(step)&&step>=0&&step<5))]]));
+}
+function restoreOldSite(data){
+ if(data.version!==1||!Array.isArray(data.words)||data.words.length>10000)throw new Error("Invalid original Lynn English backup.");
+ const incoming=Core.normalizeWords(data.words.map(w=>({
+  id:Number.isSafeInteger(w?.id)&&w.id>=0?"site2-"+w.id:"",
+  first:w?.phrase,note:w?.note,
+  date:Number.isFinite(new Date(w?.id).getTime())?Core.dayStamp(new Date(w.id)):""
+ })));
+ const mergedWords=Core.mergeWords(words,incoming);
+ const mergedHistory={...history};
+ for(const [day,steps] of Object.entries(cleanHistory(data.days)))
+  mergedHistory[day]=[...new Set([...(mergedHistory[day]||[]),...steps])];
+ if(!window.confirm("Import personal expressions and practice history from the original Lynn English?"))return;
+ if(!saveRestore({[STORAGE.words]:mergedWords,[STORAGE.history]:mergedHistory}))return;
+ words=mergedWords;history=mergedHistory;setView("words");notice("Original Lynn English data imported. Personal expressions stay on this browser.");
+}
 async function restoreBackup(file){
  if(!file)return;if(file.size>32*1024*1024){notice("Backup too large.");return}
  try{
   const data=JSON.parse(await file.text());
+  if(data?.app==="lynn-english-site2"){restoreOldSite(data);return}
   if(!data||data.app!=="lynn-english-radio"||data.version!==2||!data.v2||!Array.isArray(data.v2.importedTracks))
     throw new Error("Not a Lynn English Radio 2.0 backup.");
   const snapshot=Core.normalizeImport({version:1,tracks:data.v2.importedTracks},[],{backup:true}).tracks;
-  const parsed=Core.normalizeImport({version:1,tracks:snapshot},allTracks(),{backup:true});
+  const parsed=Core.normalizeImport({version:1,tracks:snapshot},BASE.concat(imported),{backup:true});
   const incoming=cleanProgress(data.v2.progress),status=validMap(data.v2.trackStatus);
   const mergedTracks=imported.concat(parsed.tracks);
-  const sourceTracks=new Map(BASE.concat(snapshot).map(t=>[Core.trackId(t),t]));
-  const matchingTracks=BASE.concat(mergedTracks).filter(t=>{
+  const sourceCatalog=BASE.concat(catalogWith(snapshot),snapshot);
+  const sourceTracks=new Map(sourceCatalog.map(t=>[Core.trackId(t),t]));
+  const matchingTracks=BASE.concat(catalogWith(mergedTracks),mergedTracks).filter(t=>{
    const source=sourceTracks.get(Core.trackId(t));
    return source?.channel===t.channel&&source.title===t.title;
   });
   const matchingEntries=Core.entries(matchingTracks,{});
-  const sourceEntries=new Map(Core.entries(BASE.concat(snapshot),{}).map(it=>[it.id,it.s.en]));
+  const sourceWords=Core.normalizeWords(data.unified?.words??[]);
+  const mergedWords=Core.mergeWords(words,sourceWords);
+  const mergedHistory={...cleanHistory(data.unified?.history),...history};
+  const sourceEntries=new Map(Core.entries(sourceCatalog,{}).concat(sourceWords.map(wordEntry)).map(it=>[it.id,it.s.en]));
+  matchingEntries.push(...mergedWords.map(wordEntry));
   const mergedProgress={...progress};
   for(const {id,s} of matchingEntries){
    const p=incoming[id],local=mergedProgress[id];
@@ -288,8 +350,9 @@ async function restoreBackup(file){
   if(Array.isArray(storedFav))for(const f of storedFav)if(typeof f==="string")mergedFavorites.add(f);
   if(!window.confirm("Merge this backup into this browser? Existing lessons and favorites will be kept."))return;
   if(!saveRestore({[STORAGE.imported]:mergedTracks,[STORAGE.progress]:mergedProgress,
-    [STORAGE.overrides]:mergedStatus,favorites:[...mergedFavorites]}))return;
-  imported=mergedTracks;progress=mergedProgress;overrides=mergedStatus;favorites=mergedFavorites;render();
+    [STORAGE.overrides]:mergedStatus,favorites:[...mergedFavorites],[STORAGE.words]:mergedWords,[STORAGE.history]:mergedHistory}))return;
+  imported=mergedTracks;progress=mergedProgress;overrides=mergedStatus;favorites=mergedFavorites;
+  words=mergedWords;history=mergedHistory;render();
   notice("Backup merged: "+parsed.tracks.length+" new lessons and compatible review progress restored.");
  }catch(e){notice("Restore failed: "+e.message)}
 }
@@ -302,8 +365,28 @@ $("nav").addEventListener("click",e=>{
 $("content").addEventListener("click",e=>{
  const b=e.target.closest("button[data-action]");if(!b)return;
  const action=b.dataset.action,i=Number(b.dataset.index),it=currentItems[i];
+ if(action==="open-words"){setView("words");return}
+ if(action==="cancel-word"){editingWord="";render();return}
+ if(action==="read"){
+  const track=allTracks().find(t=>Core.trackId(t)===selectedTrack);
+  const field=b.dataset.field;
+  if(track&&["reading","dialogue"].includes(field)&&track[field]){stop();speak(track[field],()=>finishPlayback("Finished."))}
+  return;
+ }
+ const word=words.find(w=>w.id===b.dataset.word);
+ if(action==="edit-word"&&word){editingWord=word.id;render();return}
+ if(action==="listen-word"&&word){playQueue([wordEntry(word)],false);return}
+ if(action==="review-word"&&word){
+  const next=words.map(w=>w.id===word.id?{...w,review:!w.review}:w);
+  if(save(STORAGE.words,next)){words=next;render();notice(word.review?"Removed from review.":"Added to the review pool for your next daily plan.")}
+  return;
+ }
  if(action==="track"){stop();selectedTrack=b.dataset.track;render();return}
- if(action==="approve"){const t=imported.find(t=>Core.trackId(t)===b.dataset.track);if(t&&changeStatus(t,"current")){stop();view="library";query="";libraryFilter="current";selectedTrack=Core.trackId(t);render();notice("Lesson added to Library and today's review pool.")}return}
+ if(action==="approve"){const t=imported.find(t=>Core.trackId(t)===b.dataset.track);if(t&&changeStatus(t,"current")){
+  stop();view="library";query="";topic="";libraryFilter="current";selectedTrack=Core.trackId(t);
+  if(!Object.values(progress).some(p=>p.lastReviewed===Core.dayStamp()))assignment=null;
+  render();notice("Lesson added to Library and the review pool.");
+ }return}
  if(action==="toggle-archive"){const t=allTracks().find(t=>Core.trackId(t)===b.dataset.track);if(t&&changeStatus(t,trackStatus(t)==="archive"?"current":"archive")){stop();selectedTrack="";render()}return}
  if(action==="play-track"){playTrack(false);return}
  if(action==="loop-track"){playTrack(true);return}
@@ -311,7 +394,7 @@ $("content").addEventListener("click",e=>{
  if(action==="loop-list"){playQueue(currentItems,true);return}
  if(!it)return;
  if(action==="reveal"){revealed.add(it.id);render();return}
- if(action==="favorite"){
+ if(action==="favorite"&&!it.personal){
   const k=Core.legacyKey(it.t,it.s),stored=get("favorites",[]);
   const next=new Set(Array.isArray(stored)?stored.filter(x=>typeof x==="string"):[]);
   if(next.has(k))next.delete(k);else next.add(k);
@@ -331,6 +414,18 @@ $("content").addEventListener("click",e=>{
   }
  }
 });
+$("content").addEventListener("submit",event=>{
+ if(event.target.id!=="wordForm")return;
+ event.preventDefault();
+ try{
+  const fields=Object.fromEntries(new FormData(event.target));
+  const previous=words.find(w=>w.id===editingWord);
+  const [word]=Core.normalizeWords([{...fields,id:previous?.id||globalThis.crypto.randomUUID(),
+   review:previous?.review,date:fields.date||Core.dayStamp()}]);
+  const next=previous?words.map(w=>w.id===word.id?word:w):words.concat(word);
+  if(save(STORAGE.words,next)){words=next;editingWord="";render();notice("Expression saved in Lynn’s Words.")}
+ }catch(e){notice(e.message)}
+});
 $("importBtn").onclick=()=>$("importFile").click();
 $("restoreBtn").onclick=()=>$("restoreFile").click();
 $("exportBtn").onclick=exportBackup;
@@ -348,11 +443,13 @@ window.addEventListener?.("storage",event=>{
  if(event.key===null||event.key==="favorites"){
   const stored=get("favorites",[]);
   favorites=new Set(Array.isArray(stored)?stored.filter(x=>typeof x==="string"):[]);
- }else if(!Object.values(STORAGE).includes(event.key))return;
+ }else if(event.key===DAY_KEY){assignment=get(DAY_KEY,null)}
+ else if(!Object.values(STORAGE).includes(event.key))return;
  const stored=get(STORAGE.imported,[]);
  imported=Array.isArray(stored)?stored:[];
  progress=cleanProgress(get(STORAGE.progress,{}));
  overrides=validMap(get(STORAGE.overrides,{}));
+ words=loadWords();history=cleanHistory(get(STORAGE.history,{}));
  render();
 });
 render();notice("Ready.");

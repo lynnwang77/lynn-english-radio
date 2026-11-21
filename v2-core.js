@@ -140,6 +140,7 @@
     const maxNew = due.length + oldDone > 5 ? 1 : 2;
     const fresh = active.filter(it=>!progress[it.id]).sort((a,b)=>priority(b)-priority(a));
     function priority(it) {
+      if (it.t.status === "inbox") return 3;
       if (it.personal || it.t.type === "scene") return 2;
       return favorites.has(legacyKey(it.t,it.s)) ? 1 : 0;
     }
