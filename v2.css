@@ -25,3 +25,23 @@ input[type=file]{display:none}button:focus-visible,input:focus-visible,select:fo
 .playing{outline:2px solid #7b9cc9;outline-offset:3px;border-radius:8px}
 @media(max-width:560px){h1{font-size:26px}.topline .tools{width:100%}.topline .tools button{flex:1}.nav button{flex:1;padding:9px 8px}.en{font-size:17px}.card{padding:15px}.stat{min-width:80px}}
 @media(max-width:560px){.nav button,.row button,.controls button,.controls select,.tools button,.trackbtn,button.pill{min-height:44px}.en,.zh,h3{overflow-wrap:anywhere}}
+
+.word-form { display: grid; gap: 12px; max-width: 640px }
+.word-form label, .transcript-label { display: grid; gap: 6px }
+.word-form input, .word-form textarea, .transcript-label textarea {
+  width: 100%; font: inherit; color: inherit; border: 1px solid #acb8c8; border-radius: 8px; padding: 9px;
+}
+.word-form textarea { min-height: 76px; resize: vertical }
+.reading { margin: 14px 0; padding: 10px; background: #f5f8fc; border-radius: 8px }
+.reading p { white-space: pre-wrap }
+.transcript-label { margin: 8px 0 }
+
+/* Voice-first personal English practice */
+.voice-entry{display:grid;gap:10px;padding:15px;border:1px solid #c6d7eb;border-radius:15px;background:#f4f8fd}
+.voice-button{display:block;width:100%;min-height:56px;padding:14px 18px;border:0;border-radius:12px;background:#172e55;color:#fff;font-size:17px;font-weight:700;cursor:pointer;text-align:center}
+.voice-button[aria-pressed="true"]{background:#a53838}
+.voice-button:focus-visible{outline:3px solid #83b5ed;outline-offset:3px}
+.voice-status{color:#53657c;font-size:13px;line-height:1.55}
+.voice-status[data-state="listening"]{color:#87411e;font-weight:600}
+.voice-status[data-state="error"]{color:#93452f}
+.voice-status[data-state="done"]{color:#236247}

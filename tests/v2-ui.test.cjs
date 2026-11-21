@@ -5,7 +5,7 @@ const path=require("node:path");
 const vm=require("node:vm");
 const dir=path.resolve(__dirname,"..");
 const code=p=>fs.readFileSync(path.join(dir,p),"utf8");
-function boot(preload={}, rejectWrite=()=>false){
+function boot(preload={}, rejectWrite=()=>false, navigatorOverrides={}){
   const db={channel:"work",rate:"1.0",zh:"on",...preload};
   const localStorage={
     getItem(k){return Object.hasOwn(db,k)?db[k]:null},
@@ -14,7 +14,7 @@ function boot(preload={}, rejectWrite=()=>false){
   };
   const els={};
   const element=id=>els[id]||(els[id]={
-    id,value:id==="rate"?"1.0":"",innerHTML:"",textContent:"",listeners:{},
+    id,value:id==="rate"?"1.0":"",innerHTML:"",textContent:"",dataset:{},listeners:{},
     addEventListener(type,handler){this.listeners[type]=handler},
     setAttribute(){},click(){},remove(){},appendChild(){},setSelectionRange(){},
     classList:{toggle(){}},pause(){},play(){return Promise.resolve()}
@@ -27,15 +27,17 @@ function boot(preload={}, rejectWrite=()=>false){
     body:{appendChild(){}}
   };
   const window={speechSynthesis:{cancel(){},speak(){}},confirm(){return true}};
-  const context={window,document,localStorage,navigator:{},setTimeout(){},
+  const context={window,document,localStorage,navigator:{...navigatorOverrides},setTimeout(){},clearTimeout(){},
+    FormData:class{constructor(form){return Object.entries(form.fields)}},
+    crypto:{randomUUID:()=>"test-attempt"},
     MediaMetadata:class{},SpeechSynthesisUtterance:class{},Blob:class{},
     URL:{createObjectURL(){return "blob:backup"},revokeObjectURL(){}}
   };
   vm.createContext(context);
   for(const name of ["tracks.js","accounting.js","track-audio.js","sentence-audio.js",
-    "v2-core.js","v2-app.js"])vm.runInContext(code(name),context,{filename:name});
+    "v2-core.js","unified-content.js","v2-app.js"])vm.runInContext(code(name),context,{filename:name});
   return {
-    els,db,window,
+    els,db,window,element,
     nav(dataset){els.nav.listeners.click({target:{closest(){return {dataset}}}})},
     action(dataset){els.content.listeners.click({target:{closest(){return {dataset}}}})},
     async upload(id,body){const el=els[id];el.files=[{size:JSON.stringify(body).length,text:async()=>JSON.stringify(body)}];await el.onchange({target:el})}
@@ -52,13 +54,55 @@ test("the same browser keeps v8 favorites in v2",()=>{
   assert.equal(ui.els.rate.value,"0.85");
   assert.equal(ui.els.player.playbackRate,0.85);
 });
+
+test("coach saves the first attempt, fills editable fields and preserves review opt-in",()=>{
+  const ui=boot();
+  ui.nav({view:"words"});
+  const fields={first:"I go library yesterday.",better:"",scene:"",note:"",date:"2026-11-21"};
+  const form={id:"wordForm",fields,elements:Object.fromEntries(Object.keys(fields).map(key=>[key,{
+    get value(){return fields[key]},set value(value){fields[key]=value},focus(){}
+  }]))};
+  const click=action=>ui.els.content.listeners.click({target:{closest:()=>({dataset:{action},form})}});
+  ui.els.content.listeners.input({target:{form,name:"first"}});
+  assert.equal(JSON.parse(ui.db["lynn.unified.wordDraft"]).first,fields.first);
+  click("coach-open");
+  assert.match(ui.els.content.innerHTML,/I go library yesterday/);
+  assert.match(ui.els.content.innerHTML,/name="first"[^>]*readonly/);
+  const stored=()=>JSON.parse(ui.db["lynn.unified.words"])[0];
+  assert.equal(stored().first,"I go library yesterday.");
+  const resumed=boot(ui.db);
+  assert.match(resumed.els.content.innerHTML,/<section id="coachPanel" class="reading" >/);
+  const paste=value=>ui.els.content.listeners.input({target:{id:"coachReply",form,value}});
+  paste('{"better":"incomplete"}');
+  assert.match(ui.element("coachStatus").textContent,/完整 JSON/);
+  assert.match(boot(ui.db).els.content.innerHTML,/incomplete/);
+  paste('{"better":"I went to the library yesterday.","note":"用 went 表达过去。","scene":"Library · 图书馆","first":"overwrite"}');
+  const edit=JSON.parse(ui.db["lynn.unified.wordEdit"]);
+  assert.equal(edit.stage,"filled");
+  assert.equal(edit.fields.better,"I went to the library yesterday.");
+  assert.match(boot(ui.db).els.content.innerHTML,/id="wordResults" open/);
+  assert.equal(stored().better,"");
+  Object.assign(fields,edit.fields,{first:"overwrite"});
+  ui.els.content.listeners.submit({target:form,preventDefault(){}});
+  assert.equal(stored().first,"I go library yesterday.");
+  assert.equal(stored().better,fields.better);
+  assert.deepEqual(JSON.parse(ui.db["lynn.unified.wordEdit"]),{});
+  assert.match(ui.els.status.textContent,/最终版本已保存/);
+  assert.equal(stored().review,false);
+});
+
+test("coach accepts fenced JSON and rejects incomplete answers",()=>{
+  const core=boot().window.LynnCore;
+  assert.equal(core.coachReply('```json\n{"better":"I went.","note":"过去式","scene":"Library"}\n```').note,"过去式");
+  assert.throws(()=>core.coachReply('{"better":"I went."}'));
+});
 test("import to Inbox, promote into Today, reveal and rate",async()=>{
   const ui=boot();
-  const sample={version:1,tracks:[{id:"car-repair",channel:"life",title:"Auto Repair",
+  const sample={version:1,tracks:[{id:"car-repair",channel:"life",title:"Repair Shop Questions",
     sentences:[{id:"s1",en:"Could you call the adjuster?",zh:"你能联系理赔员吗？"},
                {id:"s2",en:"When can the repairs start?",zh:"何时可以开工？"}]}]};
   await ui.upload("importFile",sample);
-  assert.match(ui.els.content.innerHTML,/Auto Repair/);
+  assert.match(ui.els.content.innerHTML,/Repair Shop Questions/);
   assert.match(ui.els.content.innerHTML,/Add to Library/);
   ui.action({action:"approve",track:"import:car-repair"});
   assert.match(ui.els.content.innerHTML,/Move to Archive/);
@@ -166,4 +210,128 @@ test("restoring an older backup preserves local progress and active lesson statu
   }});
   assert.equal(JSON.parse(ui.db["lynn.v2.progress"])[key].due,recent.due);
   assert.equal(JSON.parse(ui.db["lynn.v2.trackStatus"])["import:local-lesson"],"current");
+});
+
+test("Bible uses the original favorite key and recorded audio", () => {
+  const sample=boot();
+  const t=sample.window.LYNN_TRACKS.find(t=>t.title.startsWith("Psalm 23"));
+  const key=sample.window.LynnCore.legacyKey(t,t.sentences[0]);
+  const ui=boot({favorites:JSON.stringify([key])});
+  ui.nav({channel:"bible"});
+  ui.nav({view:"favorites"});
+  assert.match(ui.els.content.innerHTML,/★ Saved/);
+  ui.action({action:"play-one",index:"0"});
+  assert.match(ui.els.player.src,/psalm-23-by-still-waters-01\.mp3/);
+  assert.equal(ui.db.channel,"work");
+});
+
+test("daily queue is shared across areas and never refills after grading",()=>{
+  const ui=boot();
+  const day=JSON.parse(ui.db["lynn.unified.today"]);
+  assert.equal(day.fresh.length,2);
+  ui.action({action:"grade",choice:"good",index:"0"});
+  ui.nav({channel:"bible"});
+  ui.nav({view:"today"});
+  assert.equal((ui.els.content.innerHTML.match(/Show English/g)||[]).length,1);
+  assert.deepEqual(JSON.parse(ui.db["lynn.unified.today"]),day);
+});
+
+test("legacy expression migration is private, idempotent, and starts opted out",async()=>{
+  const ui=boot();
+  const backup={app:"lynn-english-site2",version:1,words:[{id:1795248000000,phrase:"My first sentence.",note:"At the lake"}],
+    days:{"2026-11-20":[0,1,1,7],"not-a-date":[0]}};
+  for(let i=0;i<2;i++)await ui.upload("restoreFile",backup);
+  const words=JSON.parse(ui.db["lynn.unified.words"]);
+  assert.equal(words.length,1);
+  assert.equal(words[0].first,"My first sentence.");
+  assert.equal(words[0].review,false);
+  assert.match(ui.els.content.innerHTML,/My First Try/);
+  assert.deepEqual(JSON.parse(ui.db["lynn.unified.legacyDays"]),{"2026-11-20":[0,1]});
+  assert.equal(ui.db.favorites,undefined);
+});
+
+test("new backups restore personal revisions and review dates",async()=>{
+  const ui=boot();
+  const expression={id:"word-1",first:"I go library.",better:"I went to the library.",scene:"Library",review:true};
+  await ui.upload("restoreFile",{app:"lynn-english-radio",version:2,
+    v2:{importedTracks:[],progress:{"word:word-1":{due:"2026-12-01",lastReviewed:"2026-11-22"}}},
+    unified:{words:[expression],history:{}}});
+  assert.equal(JSON.parse(ui.db["lynn.unified.words"])[0].better,expression.better);
+  assert.equal(JSON.parse(ui.db["lynn.v2.progress"])["word:word-1"].due,"2026-12-01");
+});
+
+test("old-site export reads only the established words and daily step keys",()=>{
+  const source={
+    "lynn-english-words":JSON.stringify([{id:1,phrase:"An expression"}]),
+    "lynn-english-progress-2026-11-20":"[0,2]",
+    "unrelated-application":"ignored"
+  };
+  let backup;
+  const a={click(){},remove(){}};
+  vm.runInNewContext(code("tools/export-original-lynn-english.js"),{
+    location:{origin:"https://lynn-english.hshsj4dzwb.chatgpt.site"},
+    localStorage:{length:3,key:i=>Object.keys(source)[i],getItem:k=>source[k]},
+    document:{createElement:()=>a,body:{append(){}}},
+    Blob:class{constructor([value]){backup=JSON.parse(value)}},
+    URL:{createObjectURL:()=>"blob:fixture",revokeObjectURL(){}},setTimeout(){}
+  });
+  assert.deepEqual(backup,{app:"lynn-english-site2",version:1,
+    words:[{id:1,phrase:"An expression"}],days:{"2026-11-20":[0,2]}});
+});
+
+test("one review cap spans Life, Work, and Bible and cuts new work when overdue",()=>{
+  const {window}=boot();
+  const core=window.LynnCore;
+  const items=core.entries(window.LYNN_TRACKS,{});
+  const old=items.filter(it=>it.t.channel==="life").slice(0,3).concat(items.slice(0,3));
+  const date="2026-11-21";
+  const progress=Object.fromEntries(old.map(it=>[it.id,core.grade(null,"good","2026-11-20")]));
+  const plan=core.dailyAssignment(items,progress,date,new Set());
+  assert.equal(plan.due.length,5);
+  assert.equal(plan.fresh.length,1);
+  assert.ok(plan.due.some(id=>id.startsWith("life||")));
+  assert.ok(plan.due.some(id=>id.startsWith("work||")));
+});
+
+test("Lynn's Words uses a clear speak-first button and explains microphone failures",()=>{
+ const ui=boot();
+ ui.nav({view:"words"});
+ const html=ui.els.content.innerHTML;
+ assert.match(html,/Speak My First Try/);
+ assert.ok(html.indexOf("Speak My First Try")<html.indexOf("My First Try<textarea"));
+ let recognizer;
+ ui.window.webkitSpeechRecognition=class {
+  constructor(){recognizer=this}
+  start(){}
+  abort(){}
+ };
+ const field={isConnected:true,value:"",focus(){}};
+ const button={dataset:{action:"transcribe"},closest(name){
+  if(name==="form")return {querySelector:()=>field};
+  return null;
+ }};
+ ui.els.content.listeners.click({target:{closest:()=>button}});
+ assert.match(ui.els.voiceStatus.textContent,/Listening/);
+ recognizer.onerror({error:"network"});
+ assert.match(ui.els.voiceStatus.textContent,/speech recognition service/);
+ assert.match(ui.els.status.textContent,/speech recognition service/);
+});
+
+test("iPhone uses keyboard dictation instead of browser speech recognition",()=>{
+ const ui=boot({},()=>false,{userAgent:"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"});
+ ui.nav({view:"words"});
+ assert.match(ui.els.content.innerHTML,/用 iPhone 说英语/);
+ assert.match(ui.els.content.innerHTML,/data-action="dictate"/);
+ let speechStarted=false,focused=false;
+ ui.window.webkitSpeechRecognition=class {start(){speechStarted=true}};
+ const field={focus(){focused=true}};
+ const button={dataset:{action:"dictate"},closest(name){
+  if(name==="form")return {querySelector:()=>field};
+  return null;
+ }};
+ ui.els.content.listeners.click({target:{closest:()=>button}});
+ assert.equal(focused,true);
+ assert.equal(speechStarted,false);
+ assert.match(ui.els.voiceStatus.textContent,/iOS Dictation/);
+ assert.match(ui.els.status.textContent,/iOS Dictation/);
 });
