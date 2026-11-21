@@ -5,7 +5,7 @@ const path=require("node:path");
 const vm=require("node:vm");
 const dir=path.resolve(__dirname,"..");
 const code=p=>fs.readFileSync(path.join(dir,p),"utf8");
-function boot(preload={}, rejectWrite=()=>false){
+function boot(preload={}, rejectWrite=()=>false, navigatorOverrides={}){
   const db={channel:"work",rate:"1.0",zh:"on",...preload};
   const localStorage={
     getItem(k){return Object.hasOwn(db,k)?db[k]:null},
@@ -27,7 +27,7 @@ function boot(preload={}, rejectWrite=()=>false){
     body:{appendChild(){}}
   };
   const window={speechSynthesis:{cancel(){},speak(){}},confirm(){return true}};
-  const context={window,document,localStorage,navigator:{},setTimeout(){},
+  const context={window,document,localStorage,navigator:{...navigatorOverrides},setTimeout(){},clearTimeout(){},
     MediaMetadata:class{},SpeechSynthesisUtterance:class{},Blob:class{},
     URL:{createObjectURL(){return "blob:backup"},revokeObjectURL(){}}
   };
@@ -271,4 +271,23 @@ test("Lynn's Words uses a clear speak-first button and explains microphone failu
  recognizer.onerror({error:"network"});
  assert.match(ui.els.voiceStatus.textContent,/speech recognition service/);
  assert.match(ui.els.status.textContent,/speech recognition service/);
+});
+
+test("iPhone uses keyboard dictation instead of browser speech recognition",()=>{
+ const ui=boot({},()=>false,{userAgent:"Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"});
+ ui.nav({view:"words"});
+ assert.match(ui.els.content.innerHTML,/用 iPhone 说英语/);
+ assert.match(ui.els.content.innerHTML,/data-action="dictate"/);
+ let speechStarted=false,focused=false;
+ ui.window.webkitSpeechRecognition=class {start(){speechStarted=true}};
+ const field={focus(){focused=true}};
+ const button={dataset:{action:"dictate"},closest(name){
+  if(name==="form")return {querySelector:()=>field};
+  return null;
+ }};
+ ui.els.content.listeners.click({target:{closest:()=>button}});
+ assert.equal(focused,true);
+ assert.equal(speechStarted,false);
+ assert.match(ui.els.voiceStatus.textContent,/iOS Dictation/);
+ assert.match(ui.els.status.textContent,/iOS Dictation/);
 });
