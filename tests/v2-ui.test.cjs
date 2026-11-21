@@ -14,7 +14,7 @@ function boot(preload={}, rejectWrite=()=>false){
   };
   const els={};
   const element=id=>els[id]||(els[id]={
-    id,value:id==="rate"?"1.0":"",innerHTML:"",textContent:"",listeners:{},
+    id,value:id==="rate"?"1.0":"",innerHTML:"",textContent:"",dataset:{},listeners:{},
     addEventListener(type,handler){this.listeners[type]=handler},
     setAttribute(){},click(){},remove(){},appendChild(){},setSelectionRange(){},
     classList:{toggle(){}},pause(){},play(){return Promise.resolve()}
@@ -247,4 +247,28 @@ test("one review cap spans Life, Work, and Bible and cuts new work when overdue"
   assert.equal(plan.fresh.length,1);
   assert.ok(plan.due.some(id=>id.startsWith("life||")));
   assert.ok(plan.due.some(id=>id.startsWith("work||")));
+});
+
+test("Lynn's Words uses a clear speak-first button and explains microphone failures",()=>{
+ const ui=boot();
+ ui.nav({view:"words"});
+ const html=ui.els.content.innerHTML;
+ assert.match(html,/Speak My First Try/);
+ assert.ok(html.indexOf("Speak My First Try")<html.indexOf("My First Try<textarea"));
+ let recognizer;
+ ui.window.webkitSpeechRecognition=class {
+  constructor(){recognizer=this}
+  start(){}
+  abort(){}
+ };
+ const field={isConnected:true,value:"",focus(){}};
+ const button={dataset:{action:"transcribe"},closest(name){
+  if(name==="form")return {querySelector:()=>field};
+  return null;
+ }};
+ ui.els.content.listeners.click({target:{closest:()=>button}});
+ assert.match(ui.els.voiceStatus.textContent,/Listening/);
+ recognizer.onerror({error:"network"});
+ assert.match(ui.els.voiceStatus.textContent,/speech recognition service/);
+ assert.match(ui.els.status.textContent,/speech recognition service/);
 });
