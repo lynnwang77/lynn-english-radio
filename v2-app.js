@@ -130,12 +130,19 @@ function masteredHtml(){
  return '<section class="card"><h2>Mastered ✓</h2><p class="muted">These are strong sentences, not forgotten sentences. They return periodically for maintenance.</p>'+
  (es.length?listItems(es,false):'<div class="empty">Practice sentences several times or mark one Mastered after you can say it independently.</div>')+'</section>';
 }
+function isIOSBrowser(){
+ const ua=navigator.userAgent||"";
+ return /iPhone|iPad|iPod/i.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
+}
 function wordsHtml(){
  const word=words.find(w=>w.id===editingWord)||{};
  const input=(key,label,max=2000)=>'<label>'+label+'<input name="'+key+'" maxlength="'+max+'" value="'+esc(word[key]||"")+'"></label>';
  return '<section class="card"><h2>Lynn’s Words</h2><p class="muted">Speak first. Your words do not need to be perfect.</p><form id="wordForm" class="word-form">'+
-  '<div class="voice-entry"><button type="button" class="voice-button" data-action="transcribe" aria-pressed="false">🎙 Speak My First Try · 点击说英语</button>'+
-  '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Tap the microphone and speak English. Your words will appear below. Typing is always an option.</div></div>'+
+  (isIOSBrowser()?
+   '<div class="voice-entry"><button type="button" class="voice-button" data-action="dictate">🎙 用 iPhone 说英语 · 打开键盘</button>'+
+   '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">先点上面按钮，再点 iPhone 键盘上的麦克风 🎙 说英语。文字会进入 My First Try，不必等待网页聆听。</div></div>':
+   '<div class="voice-entry"><button type="button" class="voice-button" data-action="transcribe" aria-pressed="false">🎙 Speak My First Try · 点击说英语</button>'+
+   '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Tap to speak. If browser speech fails, click the input and use keyboard dictation (Windows: Win + H).</div></div>')+
   '<label>My First Try<textarea name="first" required maxlength="2000" placeholder="Say or type your first English attempt…">'+esc(word.first||"")+'</textarea></label>'+
   '<label>Better English (optional)<textarea name="better" maxlength="2000" placeholder="You can add a more natural version later.">'+esc(word.better||"")+'</textarea></label>'+
   input("scene","Scene")+input("note","What changed?")+
@@ -198,18 +205,32 @@ function stop(){
  markPlaying();
 }
 function cancelRecognition(){
+ clearSpeechWatchdog();
  if(!recognition)return;
  const active=recognition;
  recognition=null;
- active.abort();
+ try{active.abort()}catch(e){}
+}
+let recognitionWatchdog=null;
+function clearSpeechWatchdog(){
+ if(recognitionWatchdog!==null){clearTimeout(recognitionWatchdog);recognitionWatchdog=null}
 }
 function voiceFeedback(state,message){
  const status=$("voiceStatus"),button=document.querySelector?.(".voice-button");
  if(status){status.textContent=message;status.dataset.state=state}
- if(button){
+ if(button && button.dataset.action==="transcribe"){
   button.textContent=state==="listening"?"■ Stop listening · 结束说话":"🎙 Speak My First Try · 点击说英语";
   button.setAttribute("aria-pressed",String(state==="listening"));
  }
+}
+function dictateWithKeyboard(field){
+ if(!field)return;
+ cancelRecognition();
+ field.focus();
+ const msg=isIOSBrowser()?
+  "iPhone: Tap 🎙 on your keyboard and speak English. Tap Done when finished. This uses iOS Dictation rather than website speech recognition.":
+  "Tap your keyboard microphone to speak, or type (Windows: Win + H).";
+ voiceFeedback("idle",msg);notice(msg);
 }
 function speechError(code){
  if(code==="not-allowed")return "Microphone access was blocked. Allow microphone permission in your browser, or use keyboard dictation / typing.";
@@ -222,6 +243,7 @@ function speechError(code){
 }
 function transcribe(field){
  if(!field)return;
+ if(isIOSBrowser()){dictateWithKeyboard(field);return}
  if(recognition){
   cancelRecognition();
   voiceFeedback("idle","Stopped listening. You can edit the text below or try again.");
@@ -246,18 +268,22 @@ function transcribe(field){
   attempt.onresult=event=>{
    if(recognition!==attempt||!field.isConnected)return;
    gotResult=true;
+   clearSpeechWatchdog();
    field.value=event.results[0][0].transcript.slice(0,2000);
    voiceFeedback("done","Your spoken English is written below. Check it, then save. No audio recording is stored.");
    notice("Transcript ready. Check or edit what the browser heard.");
   };
   attempt.onerror=event=>{
    if(recognition!==attempt)return;
+   clearSpeechWatchdog();
+   recognition=null;
    const msg=speechError(event?.error);
    voiceFeedback("error",msg);notice(msg);
   };
   attempt.onend=()=>{
    if(recognition!==attempt)return;
    recognition=null;
+   clearSpeechWatchdog();
    if($("voiceStatus")?.dataset.state==="listening"){
     voiceFeedback("idle",gotResult?"Transcript captured.":"Listening ended without a transcript. You can try again or type.");
    }
@@ -265,6 +291,12 @@ function transcribe(field){
   attempt.start();
   voiceFeedback("listening","🎙 Listening for English... Speak now. If prompted, allow microphone access.");
   notice("Listening for English. Your browser may use its speech service.");
+  recognitionWatchdog=setTimeout(()=>{
+   if(recognition!==attempt||gotResult)return;
+   cancelRecognition();
+   const msg="No transcript after 12 seconds. This browser may not support speech recognition. Tap My First Try and use the keyboard microphone instead.";
+   voiceFeedback("error",msg);notice(msg);
+  },12000);
  }catch(e){
   recognition=null;
   const msg=speechError("start");
@@ -444,6 +476,7 @@ $("nav").addEventListener("click",e=>{
 $("content").addEventListener("click",e=>{
  const b=e.target.closest("button[data-action]");if(!b)return;
  const action=b.dataset.action,i=Number(b.dataset.index),it=currentItems[i];
+ if(action==="dictate"){dictateWithKeyboard(b.closest("form")?.querySelector('[name="first"]'));return}
  if(action==="transcribe"){transcribe(b.closest("form")?.querySelector('[name="first"]')||b.closest("details")?.querySelector("textarea"));return}
  if(action==="open-words"){setView("words");return}
  if(action==="cancel-word"){editingWord="";render();return}
