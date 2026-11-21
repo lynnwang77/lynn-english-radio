@@ -92,3 +92,21 @@ test("imported text is HTML escaped and cannot replace legacy lessons",async()=>
   assert.doesNotMatch(ui.els.content.innerHTML,/<script>alert/);
   assert.equal(ui.window.LYNN_TRACKS.length,12);
 });
+
+test("recorded legacy audio remains the first playback choice",()=>{
+  const ui=boot({channel:"work"});
+  ui.nav({view:"library"});
+  ui.action({action:"play-track"});
+  assert.match(ui.els.player.src,/audio\/tracks\/balance-sheet-core-terms\.mp3/);
+  ui.action({action:"play-one",index:"0"});
+  assert.match(ui.els.player.src,/audio\/sentences\/balance-sheet-core-terms-01\.mp3/);
+});
+test("new imported phrases without MP3 can fall back to browser speech",async()=>{
+  const ui=boot();
+  let spoken=0;
+  ui.window.speechSynthesis.speak=()=>{spoken++};
+  await ui.upload("importFile",{version:1,tracks:[{id:"new-no-audio",channel:"life",
+    title:"New Scene",sentences:[{id:"s1",en:"Can you help me?",zh:"能帮我吗？"}]}]});
+  ui.action({action:"play-one",index:"0"});
+  assert.equal(spoken,1);
+});
