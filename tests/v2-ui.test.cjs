@@ -28,6 +28,8 @@ function boot(preload={}, rejectWrite=()=>false, navigatorOverrides={}){
   };
   const window={speechSynthesis:{cancel(){},speak(){}},confirm(){return true}};
   const context={window,document,localStorage,navigator:{...navigatorOverrides},setTimeout(){},clearTimeout(){},
+    FormData:class{constructor(form){return Object.entries(form.fields)}},
+    crypto:{randomUUID:()=>"test-attempt"},
     MediaMetadata:class{},SpeechSynthesisUtterance:class{},Blob:class{},
     URL:{createObjectURL(){return "blob:backup"},revokeObjectURL(){}}
   };
@@ -35,7 +37,7 @@ function boot(preload={}, rejectWrite=()=>false, navigatorOverrides={}){
   for(const name of ["tracks.js","accounting.js","track-audio.js","sentence-audio.js",
     "v2-core.js","unified-content.js","v2-app.js"])vm.runInContext(code(name),context,{filename:name});
   return {
-    els,db,window,
+    els,db,window,element,
     nav(dataset){els.nav.listeners.click({target:{closest(){return {dataset}}}})},
     action(dataset){els.content.listeners.click({target:{closest(){return {dataset}}}})},
     async upload(id,body){const el=els[id];el.files=[{size:JSON.stringify(body).length,text:async()=>JSON.stringify(body)}];await el.onchange({target:el})}
@@ -51,6 +53,40 @@ test("the same browser keeps v8 favorites in v2",()=>{
   assert.deepEqual(JSON.parse(ui.db.favorites),[oldFav]);
   assert.equal(ui.els.rate.value,"0.85");
   assert.equal(ui.els.player.playbackRate,0.85);
+});
+
+test("coach saves the first attempt, fills editable fields and preserves review opt-in",()=>{
+  const ui=boot();
+  ui.nav({view:"words"});
+  const fields={first:"I go library yesterday.",better:"",scene:"",note:"",date:"2026-11-21"};
+  const form={id:"wordForm",fields,elements:Object.fromEntries(Object.keys(fields).map(key=>[key,{
+    get value(){return fields[key]},set value(value){fields[key]=value},focus(){}
+  }]))};
+  ui.element("wordForm").elements=form.elements;
+  ui.element("coachPrompt").focus=()=>{};
+  const click=action=>ui.els.content.listeners.click({target:{closest:()=>({dataset:{action},form})}});
+  ui.els.content.listeners.input({target:{form,name:"first"}});
+  assert.equal(JSON.parse(ui.db["lynn.unified.wordDraft"]).first,fields.first);
+  click("coach-open");
+  assert.match(ui.element("coachPrompt").value,/I go library yesterday/);
+  assert.match(ui.els.content.innerHTML,/name="first"[^>]*readonly/);
+  const stored=()=>JSON.parse(ui.db["lynn.unified.words"])[0];
+  assert.equal(stored().first,"I go library yesterday.");
+  ui.element("coachReply").value='{"better":"I went to the library yesterday.","note":"用 went 表达过去。","scene":"Library · 图书馆","first":"overwrite"}';
+  click("coach-apply");
+  assert.equal(fields.better,"I went to the library yesterday.");
+  assert.equal(stored().better,"");
+  fields.first="overwrite";
+  ui.els.content.listeners.submit({target:form,preventDefault(){}});
+  assert.equal(stored().first,"I go library yesterday.");
+  assert.equal(stored().better,fields.better);
+  assert.equal(stored().review,false);
+});
+
+test("coach accepts fenced JSON and rejects incomplete answers",()=>{
+  const core=boot().window.LynnCore;
+  assert.equal(core.coachReply('```json\n{"better":"I went.","note":"过去式","scene":"Library"}\n```').note,"过去式");
+  assert.throws(()=>core.coachReply('{"better":"I went."}'));
 });
 test("import to Inbox, promote into Today, reveal and rate",async()=>{
   const ui=boot();

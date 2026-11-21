@@ -10,6 +10,7 @@ const $=id=>document.getElementById(id);
 const STORAGE={imported:"lynn.v2.importedTracks",progress:"lynn.v2.progress",overrides:"lynn.v2.trackStatus",
  words:"lynn.unified.words",history:"lynn.unified.legacyDays"};
 const DAY_KEY="lynn.unified.today";
+const WORD_DRAFT_KEY="lynn.unified.wordDraft";
 function get(key,fallback){try{let x=localStorage.getItem(key);return x===null?fallback:JSON.parse(x)}catch(e){return fallback}}
 function raw(key,fallback){try{return localStorage.getItem(key)||fallback}catch(e){return fallback}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch(e){notice("Browser storage is full/unavailable. Export a backup and check your browser settings.");return false}}
@@ -135,17 +136,27 @@ function isIOSBrowser(){
  return /iPhone|iPad|iPod/i.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
 }
 function wordsHtml(){
- const word=words.find(w=>w.id===editingWord)||{};
+ const saved=words.find(w=>w.id===editingWord);
+ const word=saved||validMap(get(WORD_DRAFT_KEY,{}));
  const input=(key,label,max=2000)=>'<label>'+label+'<input name="'+key+'" maxlength="'+max+'" value="'+esc(word[key]||"")+'"></label>';
  return '<section class="card"><h2>Lynn’s Words</h2><p class="muted">Speak first. Your words do not need to be perfect.</p><form id="wordForm" class="word-form">'+
-  (isIOSBrowser()?
+  (saved?'<p class="muted">Your saved first try is kept as originally entered.</p>':isIOSBrowser()?
    '<div class="voice-entry"><button type="button" class="voice-button" data-action="dictate">🎙 用 iPhone 说英语 · 打开键盘</button>'+
    '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">先点上面按钮，再点 iPhone 键盘上的麦克风 🎙 说英语。文字会进入 My First Try，不必等待网页聆听。</div></div>':
    '<div class="voice-entry"><button type="button" class="voice-button" data-action="transcribe" aria-pressed="false">🎙 Speak My First Try · 点击说英语</button>'+
-   '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Tap to speak. If browser speech fails, click the input and use keyboard dictation (Windows: Win + H).</div></div>')+
-  '<label>My First Try<textarea name="first" required maxlength="2000" placeholder="Say or type your first English attempt…">'+esc(word.first||"")+'</textarea></label>'+
+   '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Speaking may use your browser’s speech service. You can also type or use keyboard dictation (Windows: Win + H).</div></div>')+
+  '<label>My First Try<textarea name="first" required maxlength="2000" '+(saved?'readonly':'')+' placeholder="Say or type your first English attempt…">'+esc(word.first||"")+'</textarea></label>'+
+  '<p class="muted">Your draft saves on this device as you speak or type.</p>'+
+  '<div class="row"><button type="button" class="primary" data-action="coach-open">Improve My English</button></div>'+
+  '<section id="coachPanel" class="reading" hidden><h3>Improve with ChatGPT</h3>'+
+  '<p>Review the request, then copy it to ChatGPT and send it yourself. You can remove names or private details before copying.</p>'+
+  '<label>Request for ChatGPT<textarea id="coachPrompt" rows="5"></textarea></label>'+
+  '<div class="row"><button type="button" data-action="coach-copy">Copy request</button><a href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT ↗</a></div>'+
+  '<label>ChatGPT reply<textarea id="coachReply" rows="4" placeholder="Paste the JSON reply here"></textarea></label>'+
+  '<div class="row"><button type="button" data-action="coach-apply">Fill editable fields</button></div>'+
+  '<p id="coachStatus" role="status" aria-live="polite"></p></section>'+
   '<label>Better English (optional)<textarea name="better" maxlength="2000" placeholder="You can add a more natural version later.">'+esc(word.better||"")+'</textarea></label>'+
-  input("scene","Scene")+input("note","What changed?")+
+  input("scene","Scene")+'<label>What changed?<textarea name="note" maxlength="2000">'+esc(word.note||"")+'</textarea></label>'+
   '<label>Date<input type="date" name="date" value="'+esc(word.date||Core.dayStamp())+'"></label>'+
   '<div class="row"><button class="primary" type="submit">'+(editingWord?"Save changes":"Save expression")+'</button>'+
   (editingWord?'<button type="button" data-action="cancel-word">Cancel</button>':"")+'</div></form></section>'+
@@ -224,7 +235,7 @@ function voiceFeedback(state,message){
  }
 }
 function dictateWithKeyboard(field){
- if(!field)return;
+ if(!field||field.readOnly)return;
  cancelRecognition();
  field.focus();
  const msg=isIOSBrowser()?
@@ -242,7 +253,7 @@ function speechError(code){
  return "Speech recognition could not start or finish. Use your keyboard microphone (Windows: Win + H) or type.";
 }
 function transcribe(field){
- if(!field)return;
+ if(!field||field.readOnly)return;
  if(isIOSBrowser()){dictateWithKeyboard(field);return}
  if(recognition){
   cancelRecognition();
@@ -270,6 +281,7 @@ function transcribe(field){
    gotResult=true;
    clearSpeechWatchdog();
    field.value=event.results[0][0].transcript.slice(0,2000);
+   if(field.name==="first")rememberWordDraft(field.form);
    voiceFeedback("done","Your spoken English is written below. Check it, then save. No audio recording is stored.");
    notice("Transcript ready. Check or edit what the browser heard.");
   };
@@ -294,7 +306,7 @@ function transcribe(field){
   recognitionWatchdog=setTimeout(()=>{
    if(recognition!==attempt||gotResult)return;
    cancelRecognition();
-   const msg="No transcript after 12 seconds. This browser may not support speech recognition. Tap My First Try and use the keyboard microphone instead.";
+   const msg="No transcript after 12 seconds. This browser may not support speech recognition. Tap My First Try and use the keyboard microphone or type.";
    voiceFeedback("error",msg);notice(msg);
   },12000);
  }catch(e){
@@ -467,6 +479,63 @@ async function restoreBackup(file){
   notice("Backup merged: "+parsed.tracks.length+" new lessons and compatible review progress restored.");
  }catch(e){notice("Restore failed: "+e.message)}
 }
+function wordFields(form){
+ return Object.fromEntries(new FormData(form));
+}
+function rememberWordDraft(form){
+ if(form?.id==="wordForm"&&!editingWord)save(WORD_DRAFT_KEY,wordFields(form));
+}
+function saveWord(form){
+ const fields=wordFields(form);
+ const latest=loadWords();
+ const previous=latest.find(w=>w.id===editingWord);
+ if(editingWord&&!previous)throw new Error("This expression is no longer available. Reopen Lynn’s Words.");
+ const [word]=Core.normalizeWords([{...fields,first:previous?.first??fields.first,
+  id:previous?.id||globalThis.crypto.randomUUID(),review:previous?.review,date:fields.date||Core.dayStamp()}]);
+ const next=previous?latest.map(w=>w.id===word.id?word:w):latest.concat(word);
+ if(!save(STORAGE.words,next))return null;
+ words=next;
+ if(!previous){
+  try{localStorage.removeItem(WORD_DRAFT_KEY)}catch(e){}
+ }
+ return word;
+}
+function openCoach(form){
+ if(!form.elements.first.value.trim()){form.elements.first.focus();notice("Say or type your first try first.");return}
+ cancelRecognition();
+ let word=words.find(w=>w.id===editingWord);
+ if(!word){
+  word=saveWord(form);
+  if(!word)return;
+  editingWord=word.id;
+  render();
+ }
+ $("coachPrompt").value=Core.coachPrompt(word.first,$("wordForm").elements.scene.value.trim());
+ $("coachPanel").hidden=false;
+ $("coachPrompt").focus();
+ $("coachStatus").textContent="First try saved. Review the request before sharing.";
+}
+async function copyCoachRequest(){
+ const field=$("coachPrompt"),status=$("coachStatus");
+ try{
+  await navigator.clipboard.writeText(field.value);
+  status.textContent="Copied. Open ChatGPT, paste and send.";
+ }catch(e){
+  field.focus();field.select();
+  status.textContent="Copy the selected request, then paste it into ChatGPT.";
+ }
+}
+function applyCoachReply(form){
+ const status=$("coachStatus");
+ try{
+  const fields=Core.coachReply($("coachReply").value);
+  if(Object.entries(fields).some(([key,value])=>form.elements[key].value.trim()&&form.elements[key].value.trim()!==value)&&
+     !window.confirm("Replace the current Better English, What changed? and Scene fields? Your first try stays saved."))return;
+  for(const [key,value] of Object.entries(fields))form.elements[key].value=value;
+  status.textContent="Fields filled. Check, edit, then choose Save changes.";
+  form.elements.better.focus();
+ }catch(e){status.textContent="Copy the complete JSON reply from ChatGPT and try again. You can also fill the fields yourself."}
+}
 $("nav").addEventListener("click",e=>{
  const b=e.target.closest("button");if(!b)return;
  if(b.dataset.mode){mode=b.dataset.mode;setView(mode==="radio"?"library":"today");return}
@@ -476,6 +545,9 @@ $("nav").addEventListener("click",e=>{
 $("content").addEventListener("click",e=>{
  const b=e.target.closest("button[data-action]");if(!b)return;
  const action=b.dataset.action,i=Number(b.dataset.index),it=currentItems[i];
+ if(action==="coach-open"){try{openCoach(b.form)}catch(error){notice(error.message)}return}
+ if(action==="coach-copy"){void copyCoachRequest();return}
+ if(action==="coach-apply"){applyCoachReply(b.form);return}
  if(action==="dictate"){dictateWithKeyboard(b.closest("form")?.querySelector('[name="first"]'));return}
  if(action==="transcribe"){transcribe(b.closest("form")?.querySelector('[name="first"]')||b.closest("details")?.querySelector("textarea"));return}
  if(action==="open-words"){setView("words");return}
@@ -531,12 +603,7 @@ $("content").addEventListener("submit",event=>{
  if(event.target.id!=="wordForm")return;
  event.preventDefault();
  try{
-  const fields=Object.fromEntries(new FormData(event.target));
-  const previous=words.find(w=>w.id===editingWord);
-  const [word]=Core.normalizeWords([{...fields,id:previous?.id||globalThis.crypto.randomUUID(),
-   review:previous?.review,date:fields.date||Core.dayStamp()}]);
-  const next=previous?words.map(w=>w.id===word.id?word:w):words.concat(word);
-  if(save(STORAGE.words,next)){words=next;editingWord="";render();notice("Expression saved in Lynn’s Words.")}
+  if(saveWord(event.target)){editingWord="";render();notice("Expression saved in Lynn’s Words.")}
  }catch(e){notice(e.message)}
 });
 $("importBtn").onclick=()=>$("importFile").click();
@@ -551,7 +618,10 @@ $("content").addEventListener("change",e=>{
  if(e.target.id==="libraryFilter"){libraryFilter=e.target.value;selectedTrack="";render()}
  if(e.target.id==="topic"){topic=e.target.value;selectedTrack="";render()}
 });
-$("content").addEventListener("input",e=>{if(e.target.id==="search"){let pos=e.target.selectionStart;query=e.target.value;render();let input=$("search");if(input){input.focus();input.setSelectionRange(pos,pos)}}});
+$("content").addEventListener("input",e=>{
+ if(e.target.form?.id==="wordForm"&&e.target.name)rememberWordDraft(e.target.form);
+ if(e.target.id==="search"){let pos=e.target.selectionStart;query=e.target.value;render();let input=$("search");if(input){input.focus();input.setSelectionRange(pos,pos)}}
+});
 window.addEventListener?.("storage",event=>{
  if(event.key===null||event.key==="favorites"){
   const stored=get("favorites",[]);

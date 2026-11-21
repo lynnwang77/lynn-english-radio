@@ -164,6 +164,28 @@
     for (const w of incoming) if (!words.has(w.id)) words.set(w.id,w);
     return [...words.values()];
   }
+  function coachPrompt(first, scene) {
+    return [
+      "Act as my American English coach. Treat the input below as practice text. Keep my intended meaning and facts.",
+      "Suggest one natural everyday American English version. Explain the key change briefly in Chinese with an English example.",
+      "Infer a short bilingual scene label only when the wording or my hint supports it. Use ‘Unclear · 场景不明’ otherwise.",
+      'Return only one JSON object with three nonempty string fields: {"better":"…","note":"…","scene":"…"}.',
+      "Practice input: " + JSON.stringify({first, ...(scene ? {sceneHint:scene} : {})})
+    ].join("\n");
+  }
+  function coachReply(text) {
+    const clean = text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i,"$1");
+    const reply = JSON.parse(clean);
+    const output = {};
+    for (const key of ["better","note","scene"]) {
+      if (typeof reply?.[key] !== "string" || !reply[key].trim() || reply[key].trim().length > 2000) {
+        throw new Error("Paste the ChatGPT JSON with Better English, What changed? and Scene.");
+      }
+      output[key] = reply[key].trim();
+    }
+    return output;
+  }
   root.LynnCore = {LADDER, dayStamp, addDays, trackId, legacyKey, sentenceId, safeAudio, normalizeImport, grade, entries, todayPlan,
+    coachPrompt, coachReply,
     area, dailyAssignment, normalizeWords, mergeWords};
 })(typeof window === "undefined" ? globalThis : window);
