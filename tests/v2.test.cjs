@@ -125,3 +125,12 @@ test("existing favorite cards are prioritized among old unstarted lessons",()=>{
   const result=core.todayPlan(items,{},"work","2026-11-21",8,3,new Set([core.legacyKey(fav.t,fav.s)]));
   assert.equal(result.fresh[0].id,fav.id);
 });
+
+test("a Hard review removes premature Mastered status",()=>{
+  const {core}=setup();
+  let p=core.grade(null,"mastered","2026-11-21");
+  assert.equal(p.mastered,true);
+  p=core.grade(p,"hard","2026-11-22");
+  assert.equal(p.mastered,false);
+  assert.ok(p.interval<=3);
+});
