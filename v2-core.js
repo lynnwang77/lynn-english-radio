@@ -81,6 +81,7 @@
     if (nextStreak >= 4 && interval >= 14) mastered = true;
     const stamp = today || dayStamp();
     return { streak: nextStreak, interval, mastered, due: addDays(stamp, interval),
+      firstReviewed: p.firstReviewed || p.lastReviewed || stamp,
       lastReviewed: stamp, reviews: Math.max(0, Number(p.reviews) || 0) + 1 };
   }
   function entries(tracks, overrides) {
@@ -93,8 +94,13 @@
   }
   function todayPlan(items, progress, channel, today, maxDue = 8, maxNew = 3, favoriteKeys = []) {
     const pool = items.filter(it => it.t.channel === channel && it.status === "current");
+    const alreadyReviewedDue = pool.filter(it => progress[it.id] &&
+      progress[it.id].lastReviewed === today && progress[it.id].firstReviewed !== today).length;
+    const introducedToday = pool.filter(it => progress[it.id] &&
+      progress[it.id].firstReviewed === today).length;
     const due = pool.filter(it => progress[it.id] && progress[it.id].due <= today)
-      .sort((a, b) => progress[a.id].due.localeCompare(progress[b.id].due)).slice(0, maxDue);
+      .sort((a, b) => progress[a.id].due.localeCompare(progress[b.id].due))
+      .slice(0, Math.max(0, maxDue - alreadyReviewedDue));
     const unreviewed = pool.filter(it => !progress[it.id]);
     // Let the newest imported real-life lesson appear today, ahead of older unstarted material.
     const imports = unreviewed.filter(it => !!it.t.id);
@@ -104,7 +110,7 @@
     const prioritized = imports.filter(it => it.t.id === latestId)
       .concat(imports.filter(it => it.t.id !== latestId), favorites,
         unreviewed.filter(it => !it.t.id && !stars.has(legacyKey(it.t, it.s))));
-    const fresh = prioritized.slice(0, Math.min(maxNew, Math.max(0, 10 - due.length)));
+    const fresh = prioritized.slice(0, Math.min(Math.max(0, maxNew - introducedToday), Math.max(0, 10 - due.length)));
     return {due, fresh, all: due.concat(fresh)};
   }
   root.LynnCore = {LADDER, dayStamp, addDays, trackId, legacyKey, sentenceId, safeAudio, normalizeImport, grade, entries, todayPlan};
