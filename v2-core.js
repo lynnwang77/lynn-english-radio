@@ -66,7 +66,8 @@
     const streak = Math.max(0, Number(p.streak) || 0);
     let nextStreak = streak, interval = 1, mastered = !!p.mastered;
     if (choice === "again") { nextStreak = 0; interval = 1; mastered = false; }
-    if (choice === "hard") { interval = Math.max(1, Math.min(3, Math.floor((Number(p.interval) || 1) / 2))); }
+    if (choice === "hard") { nextStreak = Math.max(0, streak - 1); mastered = false;
+      interval = Math.max(1, Math.min(3, Math.floor((Number(p.interval) || 1) / 2))); }
     if (choice === "good") {
       nextStreak++;
       interval = LADDER[Math.min(nextStreak - 1, LADDER.length - 1)];
