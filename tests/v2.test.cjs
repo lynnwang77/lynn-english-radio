@@ -118,6 +118,21 @@ test("today keeps a real daily limit instead of infinitely refilling",()=>{
   assert.ok(next.due.length>=3);
   assert.ok(next.fresh.length>=1);
 });
+
+test("finishing due cards does not add an eleventh sentence to Today",()=>{
+  const {data,core}=setup();
+  const items=core.entries(data,{}).filter(it=>it.t.channel==="work");
+  const progress={};
+  for(const {id} of items.slice(0,8))progress[id]=core.grade(null,"good","2026-11-20");
+  const today="2026-11-21";
+  const plan=()=>core.todayPlan(items,progress,"work",today);
+  assert.equal(plan().all.length,10);
+  while(plan().due.length){
+    const {id}=plan().due[0];
+    progress[id]=core.grade(progress[id],"good",today);
+  }
+  assert.equal(plan().fresh.length,2);
+});
 test("existing favorite cards are prioritized among old unstarted lessons",()=>{
   const {data,core}=setup();
   const items=core.entries(data,{});

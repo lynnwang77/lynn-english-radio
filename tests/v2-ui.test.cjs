@@ -5,11 +5,12 @@ const path=require("node:path");
 const vm=require("node:vm");
 const dir=path.resolve(__dirname,"..");
 const code=p=>fs.readFileSync(path.join(dir,p),"utf8");
-function boot(preload={}){
+function boot(preload={}, rejectWrite=()=>false){
   const db={channel:"work",rate:"1.0",zh:"on",...preload};
   const localStorage={
     getItem(k){return Object.hasOwn(db,k)?db[k]:null},
-    setItem(k,v){db[k]=String(v)}
+    setItem(k,v){if(rejectWrite(k))throw new Error("Storage unavailable");db[k]=String(v)},
+    removeItem(k){delete db[k]}
   };
   const els={};
   const element=id=>els[id]||(els[id]={
@@ -42,12 +43,14 @@ function boot(preload={}){
 }
 const oldFav="work||Bank Account Opening||I'd like to open a new business bank account.";
 test("the same browser keeps v8 favorites in v2",()=>{
-  const ui=boot({favorites:JSON.stringify([oldFav])});
+  const ui=boot({favorites:JSON.stringify([oldFav]),rate:".85"});
   assert.match(ui.els.content.innerHTML,/Today/);
   ui.nav({view:"favorites"});
   assert.match(ui.els.content.innerHTML,/Bank Account Opening/);
   assert.match(ui.els.content.innerHTML,/★ Saved/);
   assert.deepEqual(JSON.parse(ui.db.favorites),[oldFav]);
+  assert.equal(ui.els.rate.value,"0.85");
+  assert.equal(ui.els.player.playbackRate,0.85);
 });
 test("import to Inbox, promote into Today, reveal and rate",async()=>{
   const ui=boot();
@@ -109,4 +112,58 @@ test("new imported phrases without MP3 can fall back to browser speech",async()=
     title:"New Scene",sentences:[{id:"s1",en:"Can you help me?",zh:"能帮我吗？"}]}]});
   ui.action({action:"play-one",index:"0"});
   assert.equal(spoken,1);
+});
+
+test("an imported lesson with a legacy title in the other channel uses its own audio",async()=>{
+  const ui=boot();
+  const lesson={id:"different-balance-sheet",channel:"life",title:"Balance Sheet · Core Terms",
+    trackAudio:"audio/tracks/a-quiet-day.mp3",
+    sentences:[{en:"Good morning.",zh:"早上好。",audio:"audio/sentences/a-quiet-day-01.mp3"}]};
+  await ui.upload("importFile",{version:1,tracks:[lesson]});
+  ui.action({action:"loop-one",index:"0"});
+  assert.equal(ui.els.player.src,lesson.sentences[0].audio);
+  assert.equal(ui.els.player.loop,true);
+  ui.action({action:"approve",track:"import:different-balance-sheet"});
+  ui.action({action:"play-track"});
+  assert.equal(ui.els.player.src,lesson.trackAudio);
+});
+
+test("a failed restore rolls back saved changes and a retry recovers many lessons",async()=>{
+  let full=true;
+  const ui=boot({favorites:JSON.stringify([oldFav])},key=>full&&key==="lynn.v2.trackStatus");
+  const lessons=Array.from({length:101},(_,i)=>({id:"life-"+i,channel:"life",title:"Lesson "+i,
+    sentences:[{id:"s1",en:"Good morning.",zh:"早上好。"}]}));
+  const backup={app:"lynn-english-radio",version:2,legacy:{favorites:JSON.stringify(["life||Lesson 0||Good morning."])},
+    v2:{importedTracks:lessons,trackStatus:{"import:life-0":"current"},progress:{
+      "import:life-0:s1":{streak:2,interval:3,due:"2026-11-25",lastReviewed:"2026-11-22",reviews:2}
+    }}};
+  await ui.upload("restoreFile",backup);
+  assert.match(ui.els.status.textContent,/existing data was kept/);
+  assert.equal(ui.db["lynn.v2.importedTracks"],undefined);
+  assert.equal(ui.db["lynn.v2.progress"],undefined);
+  assert.deepEqual(JSON.parse(ui.db.favorites),[oldFav]);
+  full=false;
+  await ui.upload("restoreFile",backup);
+  assert.equal(JSON.parse(ui.db["lynn.v2.importedTracks"]).length,101);
+  assert.equal(JSON.parse(ui.db["lynn.v2.progress"])["import:life-0:s1"].due,"2026-11-25");
+  assert.equal(JSON.parse(ui.db["lynn.v2.trackStatus"])["import:life-0"],"current");
+  assert.deepEqual(JSON.parse(ui.db.favorites),[oldFav,"life||Lesson 0||Good morning."]);
+});
+
+test("restoring an older backup preserves local progress and active lesson status",async()=>{
+  const lesson={id:"local-lesson",channel:"life",title:"Local lesson",status:"inbox",
+    sentences:[{id:"s1",en:"Hello.",zh:"你好。"}]};
+  const key="import:local-lesson:s1";
+  const recent={streak:2,interval:3,due:"2026-11-25",lastReviewed:"2026-11-22",reviews:3};
+  const ui=boot({
+    "lynn.v2.importedTracks":JSON.stringify([lesson]),
+    "lynn.v2.trackStatus":JSON.stringify({"import:local-lesson":"current"}),
+    "lynn.v2.progress":JSON.stringify({[key]:recent})
+  });
+  await ui.upload("restoreFile",{app:"lynn-english-radio",version:2,v2:{
+    importedTracks:[lesson],trackStatus:{"import:local-lesson":"archive"},
+    progress:{[key]:{...recent,reviews:2,due:"2026-11-23"}}
+  }});
+  assert.equal(JSON.parse(ui.db["lynn.v2.progress"])[key].due,recent.due);
+  assert.equal(JSON.parse(ui.db["lynn.v2.trackStatus"])["import:local-lesson"],"current");
 });

@@ -9,25 +9,33 @@ const STORAGE={imported:"lynn.v2.importedTracks",progress:"lynn.v2.progress",ove
 function get(key,fallback){try{let x=localStorage.getItem(key);return x===null?fallback:JSON.parse(x)}catch(e){return fallback}}
 function raw(key,fallback){try{return localStorage.getItem(key)||fallback}catch(e){return fallback}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch(e){notice("Browser storage is full/unavailable. Export a backup and check your browser settings.");return false}}
+function savePreference(key,value){try{localStorage.setItem(key,value)}catch(e){}}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function validMap(x){return x&&typeof x==="object"&&!Array.isArray(x)?x:{}}
 const favRaw=get("favorites",[]);
 let favorites=new Set(Array.isArray(favRaw)?favRaw.filter(x=>typeof x==="string"):[]);
-let imported=Array.isArray(get(STORAGE.imported,[]))?get(STORAGE.imported,[]):[];
-let progress=validMap(get(STORAGE.progress,{}));
+const storedTracks=get(STORAGE.imported,[]);
+let imported=Array.isArray(storedTracks)?storedTracks:[];
+let progress=cleanProgress(get(STORAGE.progress,{}));
 let overrides=validMap(get(STORAGE.overrides,{}));
 let channel=["work","life"].includes(raw("channel","work"))?raw("channel","work"):"work";
 let view="today",selectedTrack="",libraryFilter="current",query="",showZh=raw("zh","on")!=="off";
 let revealed=new Set(), currentItems=[], queue=[],queuePos=0,loopQueue=false,playToken=0,playingId="";
 const media=$("player");media.preload="metadata";media.setAttribute("playsinline","");
-const rate=$("rate");rate.value=raw("rate","1.0");media.playbackRate=Number(rate.value)||1;
+const rate=$("rate");
+const savedRate=Number(raw("rate","1.0"));
+rate.value=({0.85:"0.85",0.95:"0.95",1:"1.0",1.1:"1.1"})[savedRate]||"1.0";
+media.playbackRate=Number(rate.value);
+let audioActive=false;
 const allTracks=()=>BASE.concat(imported);
 function allEntries(){return Core.entries(allTracks(),overrides)}
 function notice(msg){$("status").textContent=msg}
 function trackStatus(t){return overrides[Core.trackId(t)]||t.status||"current"}
-function writeFavorites(){save("favorites",[...favorites])}
-function writeProgress(){save(STORAGE.progress,progress)}
-function writeOverrides(){save(STORAGE.overrides,overrides)}
+function changeStatus(t,status){
+ const next={...overrides,[Core.trackId(t)]:status};
+ if(!save(STORAGE.overrides,next))return false;
+ overrides=next;return true;
+}
 function isFav(it){return favorites.has(Core.legacyKey(it.t,it.s))}
 function markPlaying(){document.querySelectorAll(".sentence").forEach(x=>x.classList.toggle("playing",x.dataset.id===playingId))}
 function navi(){
@@ -62,7 +70,7 @@ function statsHtml(){
 }
 function todayHtml(){
  const plan=Core.todayPlan(allEntries(),progress,channel,Core.dayStamp(),8,3,favorites);
- let html=statsHtml()+'<section class="card"><h2>Today · 10–15 minutes</h2><p class="muted">Listen → say it yourself → reveal → rate how easily you remembered. Ratings schedule the next review.</p>';
+ let html=statsHtml()+'<section class="card"><h2>Today · 10–15 minutes</h2><p class="muted">Say it in English → check the answer and listen → rate your recall to schedule the next review.</p>';
  if(!plan.all.length)return html+'<div class="empty">You are caught up for today. Explore the Library, or come back tomorrow.</div></section>';
  return html+listItems(plan.all,true)+'</section>';
 }
@@ -109,66 +117,76 @@ function inboxHtml(){
 function render(){
  navi();
  $("zhbtn").textContent="中文 "+(showZh?"On":"Off");
- currentItems=[];revealed=new Set([...revealed].filter(id=>allEntries().some(e=>e.id===id)));
+ currentItems=[];
  $("content").innerHTML=view==="today"?todayHtml():view==="library"?libraryHtml():view==="favorites"?favoritesHtml():view==="inbox"?inboxHtml():masteredHtml();
  markPlaying();
 }
 function setView(v){stop();view=v;revealed.clear();render()}
-function setChannel(c){stop();channel=c;localStorage.setItem("channel",channel);selectedTrack="";revealed.clear();render()}
+function setChannel(c){stop();channel=c;savePreference("channel",channel);selectedTrack="";query="";revealed.clear();render()}
 function audioSrc(it){
+ if(it.t.id)return Core.safeAudio(it.s.audio);
  const n=it.t.sentences.indexOf(it.s)+1;
- return Core.safeAudio((SA[it.t.title]||{})[String(n)])||Core.safeAudio(it.s.audio);
+ return Core.safeAudio((SA[it.t.title]||{})[String(n)]);
 }
 function session(title,context){
  if(!("mediaSession" in navigator))return;
  try{navigator.mediaSession.metadata=new MediaMetadata({title,artist:"Lynn English Radio",album:context||"English practice"});
- navigator.mediaSession.setActionHandler("play",()=>media.play());
+ navigator.mediaSession.setActionHandler("play",()=>{if(audioActive)media.play().catch(()=>notice("Tap Play to restart audio."))});
  navigator.mediaSession.setActionHandler("pause",()=>media.pause());
  navigator.mediaSession.setActionHandler("stop",stop);}catch(e){}
 }
 function stop(){
- playToken++;queue=[];queuePos=0;playingId="";media.onended=null;media.pause();media.loop=false;
+ playToken++;queue=[];queuePos=0;playingId="";audioActive=false;media.onended=null;media.pause();media.loop=false;
  try{media.currentTime=0}catch(e){}
  if("speechSynthesis" in window)window.speechSynthesis.cancel();
  markPlaying();
 }
+function finishPlayback(msg){
+ audioActive=false;playingId="";markPlaying();notice(msg);
+}
 function playSource(src,title,context,onEnd,loop){
  if(!src)return false;
  media.pause();media.onended=null;media.loop=!!loop;media.src=src;media.playbackRate=Number(rate.value)||1;
- session(title,context);media.onended=onEnd||null;
- media.play().catch(()=>notice("Audio could not start. Tap Play again or check your connection."));
+ const token=playToken;
+ audioActive=true;session(title,context);media.onended=onEnd;
+ media.play().catch(()=>{
+  if(token===playToken)finishPlayback("Audio could not start. Tap Play again or check your connection.");
+ });
  return true;
 }
 function speak(en,next){
- if(!("speechSynthesis" in window)){notice("No recorded audio or browser speech is available.");return}
+ if(!("speechSynthesis" in window)){finishPlayback("No recorded audio or browser speech is available.");return}
+ const token=playToken;
  const utter=new SpeechSynthesisUtterance(en);utter.lang="en-US";utter.rate=Number(rate.value)||1;
- utter.onend=next;utter.onerror=()=>notice("Browser speech playback was interrupted.");
- window.speechSynthesis.cancel();window.speechSynthesis.speak(utter);
+ utter.onend=next;
+ utter.onerror=()=>{if(token===playToken)finishPlayback("Browser speech is unavailable or was interrupted.")};
+ window.speechSynthesis.speak(utter);
 }
 function playQueue(items,loop){
  stop();queue=items.slice();loopQueue=loop;queuePos=0;let token=playToken;
  function next(){
   if(token!==playToken||!queue.length)return;
-  if(queuePos>=queue.length){if(!loopQueue){playingId="";markPlaying();notice("Finished.");return}queuePos=0}
+  if(queuePos>=queue.length){if(!loopQueue){finishPlayback("Finished.");return}queuePos=0}
   let it=queue[queuePos++];playingId=it.id;markPlaying();
   notice("Playing · "+it.t.title+" · "+queuePos+"/"+queue.length);
   const src=audioSrc(it);
-  if(!playSource(src,it.s.en,it.t.title,next,false))speak(it.s.en,next);
+  if(!playSource(src,it.s.en,it.t.title,next,loopQueue&&queue.length===1))speak(it.s.en,next);
  }
  next();
 }
 function playTrack(loop){
  const t=allTracks().find(t=>Core.trackId(t)===selectedTrack);if(!t)return;
- const source=Core.safeAudio(A[t.title])||Core.safeAudio(t.trackAudio);
- if(source){stop();notice((loop?"Looping · ":"Playing · ")+t.title);playSource(source,t.title,t.meta,()=>notice("Finished."),loop)}
+ const source=Core.safeAudio(t.id?t.trackAudio:A[t.title]);
+ if(source){stop();notice((loop?"Looping · ":"Playing · ")+t.title);playSource(source,t.title,t.meta,()=>finishPlayback("Finished."),loop)}
  else playQueue(Core.entries([t],overrides),loop);
 }
 function exportBackup(){
  const keys=["favorites","channel","view","zh","rate","v8channel","v8zh","v8rate"];
  const legacy={};keys.forEach(k=>{try{legacy[k]=localStorage.getItem(k)}catch(e){legacy[k]=null}});
+ legacy.favorites=JSON.stringify([...favorites]);
  const backup={app:"lynn-english-radio",version:2,exportedAt:new Date().toISOString(),legacy,
   v2:{importedTracks:imported,progress,trackStatus:overrides}};
- const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+ const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
  const url=URL.createObjectURL(blob),a=document.createElement("a");
  a.href=url;a.download="lynn-english-radio-backup-"+Core.dayStamp()+".json";
  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -179,41 +197,83 @@ async function importLessons(file){
  try{const data=JSON.parse(await file.text()),parsed=Core.normalizeImport(data,allTracks());
  if(!parsed.tracks.length){notice("No new lessons: "+parsed.skipped+" already exist.");return}
  if(!save(STORAGE.imported,imported.concat(parsed.tracks)))return;
- imported=imported.concat(parsed.tracks);channel=parsed.tracks[0].channel;localStorage.setItem("channel",channel);
- view="inbox";selectedTrack="";render();
+ imported=imported.concat(parsed.tracks);stop();channel=parsed.tracks[0].channel;savePreference("channel",channel);
+ view="inbox";selectedTrack="";query="";revealed.clear();render();
  notice("Imported "+parsed.tracks.length+" lesson(s) into Inbox. Skipped duplicates: "+parsed.skipped+".");
  }catch(e){notice("Import failed: "+e.message)}
 }
 function cleanProgress(data){
  const result={};
+ const count=value=>Number.isSafeInteger(value)&&value>=0?value:0;
  if(!data||typeof data!=="object"||Array.isArray(data))return result;
  for(const [k,p] of Object.entries(data)){
   if(["__proto__","constructor","prototype"].includes(k)||!p||typeof p!=="object"||typeof p.due!=="string")continue;
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(p.due))continue;
-  result[k]={streak:Math.max(0,Number(p.streak)||0),interval:Math.max(1,Number(p.interval)||1),
-   mastered:!!p.mastered,due:p.due,firstReviewed:String(p.firstReviewed||p.lastReviewed||""),lastReviewed:String(p.lastReviewed||""),reviews:Math.max(0,Number(p.reviews)||0)};
+  if(!isReviewDate(p.due))continue;
+  const lastReviewed=isReviewDate(p.lastReviewed)?p.lastReviewed:"";
+  result[k]={streak:Math.min(count(p.streak),Core.LADDER.length),interval:Math.max(1,count(p.interval)),
+   mastered:p.mastered===true,due:p.due,firstReviewed:isReviewDate(p.firstReviewed)?p.firstReviewed:lastReviewed,lastReviewed,reviews:count(p.reviews)};
  }
  return result;
 }
+function isReviewDate(day){
+ return typeof day==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(day)&&Core.dayStamp(day+"T12:00:00")===day;
+}
+function saveRestore(values){
+ const written=[];
+ try{
+  for(const [key,value] of Object.entries(values)){
+   const previous=localStorage.getItem(key),next=JSON.stringify(value);
+   if(previous===next)continue;
+   localStorage.setItem(key,next);
+   written.push([key,previous]);
+  }
+  return true;
+ }catch(e){
+  try{
+   for(const [key,previous] of written.reverse()){
+    if(previous===null)localStorage.removeItem(key);
+    else localStorage.setItem(key,previous);
+   }
+   notice("Restore could not be saved. Your existing data was kept.");
+  }catch(e){notice("Restore and rollback failed. Keep your backup before retrying.")}
+  return false;
+ }
+}
 async function restoreBackup(file){
- if(!file)return;if(file.size>4*1024*1024){notice("Backup too large.");return}
+ if(!file)return;if(file.size>32*1024*1024){notice("Backup too large.");return}
  try{
   const data=JSON.parse(await file.text());
   if(!data||data.app!=="lynn-english-radio"||data.version!==2||!data.v2||!Array.isArray(data.v2.importedTracks))
     throw new Error("Not a Lynn English Radio 2.0 backup.");
-  const parsed=data.v2.importedTracks.length ? Core.normalizeImport({version:1,tracks:data.v2.importedTracks.map(t=>({...t,status:"inbox"}))},allTracks()) : {tracks:[],skipped:0};
+  const snapshot=Core.normalizeImport({version:1,tracks:data.v2.importedTracks},[],{backup:true}).tracks;
+  const parsed=Core.normalizeImport({version:1,tracks:snapshot},allTracks(),{backup:true});
   const incoming=cleanProgress(data.v2.progress),status=validMap(data.v2.trackStatus);
   const mergedTracks=imported.concat(parsed.tracks);
+  const sourceTracks=new Map(BASE.concat(snapshot).map(t=>[Core.trackId(t),t]));
+  const matchingTracks=BASE.concat(mergedTracks).filter(t=>{
+   const source=sourceTracks.get(Core.trackId(t));
+   return source?.channel===t.channel&&source.title===t.title;
+  });
+  const matchingEntries=Core.entries(matchingTracks,{});
+  const sourceEntries=new Map(Core.entries(BASE.concat(snapshot),{}).map(it=>[it.id,it.s.en]));
   const mergedProgress={...progress};
-  for(const [k,p] of Object.entries(incoming))if(!mergedProgress[k]||(p.lastReviewed||"")>=(mergedProgress[k].lastReviewed||""))mergedProgress[k]=p;
+  for(const {id,s} of matchingEntries){
+   const p=incoming[id],local=mergedProgress[id];
+   if(p&&sourceEntries.get(id)===s.en&&(!local||p.lastReviewed>local.lastReviewed||
+      (p.lastReviewed===local.lastReviewed&&p.reviews>local.reviews)))mergedProgress[id]=p;
+  }
   const mergedStatus={...overrides};
-  for(const [k,v] of Object.entries(status))if(!["__proto__","constructor","prototype"].includes(k)&&["current","archive","inbox"].includes(v))mergedStatus[k]=v;
-  if(!window.confirm("Merge this backup into this browser? Existing lessons and favorites will be kept."))return;
-  if(!save(STORAGE.imported,mergedTracks)||!save(STORAGE.progress,mergedProgress)||!save(STORAGE.overrides,mergedStatus))return;
-  imported=mergedTracks;progress=mergedProgress;overrides=mergedStatus;
+  for(const t of matchingTracks){
+   const key=Core.trackId(t),value=status[key];
+   if(!Object.hasOwn(overrides,key)&&["current","archive","inbox"].includes(value))mergedStatus[key]=value;
+  }
   let storedFav=[];try{storedFav=JSON.parse(data.legacy?.favorites||"[]")}catch(e){}
-  if(Array.isArray(storedFav))for(const f of storedFav)if(typeof f==="string")favorites.add(f);
-  writeFavorites();render();
+  const mergedFavorites=new Set(favorites);
+  if(Array.isArray(storedFav))for(const f of storedFav)if(typeof f==="string")mergedFavorites.add(f);
+  if(!window.confirm("Merge this backup into this browser? Existing lessons and favorites will be kept."))return;
+  if(!saveRestore({[STORAGE.imported]:mergedTracks,[STORAGE.progress]:mergedProgress,
+    [STORAGE.overrides]:mergedStatus,favorites:[...mergedFavorites]}))return;
+  imported=mergedTracks;progress=mergedProgress;overrides=mergedStatus;favorites=mergedFavorites;render();
   notice("Backup merged: "+parsed.tracks.length+" new lessons and compatible review progress restored.");
  }catch(e){notice("Restore failed: "+e.message)}
 }
@@ -226,28 +286,54 @@ $("content").addEventListener("click",e=>{
  const b=e.target.closest("button[data-action]");if(!b)return;
  const action=b.dataset.action,i=Number(b.dataset.index),it=currentItems[i];
  if(action==="track"){stop();selectedTrack=b.dataset.track;render();return}
- if(action==="approve"){const t=imported.find(t=>Core.trackId(t)===b.dataset.track);if(t){overrides[Core.trackId(t)]="current";writeOverrides();view="library";selectedTrack=Core.trackId(t);render();notice("Lesson added to Library and today's review pool.")}return}
- if(action==="toggle-archive"){const t=allTracks().find(t=>Core.trackId(t)===b.dataset.track);if(t){overrides[Core.trackId(t)]=trackStatus(t)==="archive"?"current":"archive";writeOverrides();selectedTrack="";render()}return}
+ if(action==="approve"){const t=imported.find(t=>Core.trackId(t)===b.dataset.track);if(t&&changeStatus(t,"current")){stop();view="library";query="";libraryFilter="current";selectedTrack=Core.trackId(t);render();notice("Lesson added to Library and today's review pool.")}return}
+ if(action==="toggle-archive"){const t=allTracks().find(t=>Core.trackId(t)===b.dataset.track);if(t&&changeStatus(t,trackStatus(t)==="archive"?"current":"archive")){stop();selectedTrack="";render()}return}
  if(action==="play-track"){playTrack(false);return}
  if(action==="loop-track"){playTrack(true);return}
  if(action==="play-list"){playQueue(currentItems,false);return}
  if(action==="loop-list"){playQueue(currentItems,true);return}
  if(!it)return;
  if(action==="reveal"){revealed.add(it.id);render();return}
- if(action==="favorite"){let k=Core.legacyKey(it.t,it.s);favorites.has(k)?favorites.delete(k):favorites.add(k);writeFavorites();render();return}
+ if(action==="favorite"){
+  const k=Core.legacyKey(it.t,it.s),stored=get("favorites",[]);
+  const next=new Set(Array.isArray(stored)?stored.filter(x=>typeof x==="string"):[]);
+  if(next.has(k))next.delete(k);else next.add(k);
+  if(save("favorites",[...next])){favorites=next;render()}
+  return;
+ }
  if(action==="play-one"){playQueue([it],false);return}
  if(action==="loop-one"){playQueue([it],true);return}
- if(action==="grade"){stop();progress[it.id]=Core.grade(progress[it.id],b.dataset.choice,Core.dayStamp());writeProgress();revealed.delete(it.id);render();notice("Scheduled next review: "+progress[it.id].due);return}
+ if(action==="grade"){
+  const scheduled=Core.grade(progress[it.id],b.dataset.choice,Core.dayStamp());
+  const next={...progress,[it.id]:scheduled};
+  if(!save(STORAGE.progress,next))return;
+  stop();progress=next;revealed.delete(it.id);render();notice("Scheduled next review: "+scheduled.due);
+  if(view==="today"){
+   const target=$("content").querySelector?.('[data-action="reveal"][data-index="'+Math.min(i,currentItems.length-1)+'"]')||$("content").querySelector?.(".empty");
+   if(target){if(!currentItems.length)target.tabIndex=-1;target.focus()}
+  }
+ }
 });
 $("importBtn").onclick=()=>$("importFile").click();
 $("restoreBtn").onclick=()=>$("restoreFile").click();
 $("exportBtn").onclick=exportBackup;
 $("importFile").onchange=async e=>{await importLessons(e.target.files[0]);e.target.value=""};
 $("restoreFile").onchange=async e=>{await restoreBackup(e.target.files[0]);e.target.value=""};
-$("zhbtn").onclick=()=>{showZh=!showZh;try{localStorage.setItem("zh",showZh?"on":"off")}catch(e){}render()};
+$("zhbtn").onclick=()=>{showZh=!showZh;savePreference("zh",showZh?"on":"off");render()};
 $("stopBtn").onclick=()=>{stop();notice("Stopped.")};
-rate.onchange=()=>{try{localStorage.setItem("rate",rate.value)}catch(e){}media.playbackRate=Number(rate.value)||1};
+rate.onchange=()=>{savePreference("rate",rate.value);media.playbackRate=Number(rate.value)||1};
 $("content").addEventListener("change",e=>{if(e.target.id==="libraryFilter"){libraryFilter=e.target.value;selectedTrack="";render()}});
 $("content").addEventListener("input",e=>{if(e.target.id==="search"){let pos=e.target.selectionStart;query=e.target.value;render();let input=$("search");if(input){input.focus();input.setSelectionRange(pos,pos)}}});
-render();notice("Ready · Your original favorites and recorded audio are preserved.");
+window.addEventListener?.("storage",event=>{
+ if(event.key===null||event.key==="favorites"){
+  const stored=get("favorites",[]);
+  favorites=new Set(Array.isArray(stored)?stored.filter(x=>typeof x==="string"):[]);
+ }else if(!Object.values(STORAGE).includes(event.key))return;
+ const stored=get(STORAGE.imported,[]);
+ imported=Array.isArray(stored)?stored:[];
+ progress=cleanProgress(get(STORAGE.progress,{}));
+ overrides=validMap(get(STORAGE.overrides,{}));
+ render();
+});
+render();notice("Ready.");
 })();

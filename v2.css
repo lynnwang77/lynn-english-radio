@@ -24,3 +24,4 @@ select{border:1px solid #ccd4df;border-radius:10px;padding:9px;background:#fff}
 input[type=file]{display:none}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #83b5ed;outline-offset:2px}
 .playing{outline:2px solid #7b9cc9;outline-offset:3px;border-radius:8px}
 @media(max-width:560px){h1{font-size:26px}.topline .tools{width:100%}.topline .tools button{flex:1}.nav button{flex:1;padding:9px 8px}.en{font-size:17px}.card{padding:15px}.stat{min-width:80px}}
+@media(max-width:560px){.nav button,.row button,.controls button,.controls select,.tools button,.trackbtn,button.pill{min-height:44px}.en,.zh,h3{overflow-wrap:anywhere}}

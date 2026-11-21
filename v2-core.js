@@ -23,11 +23,13 @@
     if (/^https:\/\/[a-z0-9.-]+\/[^\s"'<>]+\.mp3(\?[^\s"'<>]*)?$/i.test(s)) return s;
     return "";
   }
-  function normalizeImport(data, existing) {
-    if (!data || data.version !== 1 || !Array.isArray(data.tracks) || !data.tracks.length || data.tracks.length > MAX_TRACKS)
+  function normalizeImport(data, existing = [], {backup = false} = {}) {
+    if (!data || data.version !== 1 || !Array.isArray(data.tracks) ||
+        (!backup && (!data.tracks.length || data.tracks.length > MAX_TRACKS)))
       throw new Error("Expected {version:1, tracks:[...]} with 1–100 lessons.");
-    const used = new Set((existing || []).map(t => t.channel + "||" + t.title.toLowerCase()));
-    const usedIds = new Set((existing || []).filter(t => t.id).map(t => t.id));
+    const used = new Set(existing.map(t => t.channel + "||" + t.title.toLowerCase()));
+    const usedIds = new Set(existing.filter(t => t.id).map(t => t.id));
+    const usedSentences = new Set(existing.filter(t => t.id).flatMap(t => t.sentences.map(s => sentenceId(t, s))));
     const tracks = [];
     let skipped = 0;
     for (const raw of data.tracks) {
@@ -48,9 +50,14 @@
         return { id: (typeof s.id === "string" && /^[\w.:-]{1,80}$/.test(s.id)) ? s.id : "s" + (i + 1),
           en: s.en.trim(), zh: s.zh.trim(), audio: safeAudio(s.audio) };
       });
-      if (new Set(sentences.map(s => s.id)).size !== sentences.length) throw new Error("Duplicate sentence IDs.");
-      tracks.push({ id, channel: raw.channel, title, meta: typeof raw.meta === "string" ? raw.meta.slice(0, 160) : "Real-life English · ChatGPT",
-        status: "inbox", sentences, trackAudio: safeAudio(raw.trackAudio) });
+      const track = { id, channel: raw.channel, title, meta: typeof raw.meta === "string" ? raw.meta.slice(0, 160) : "Real-life English · ChatGPT",
+        status: "inbox", sentences, trackAudio: safeAudio(raw.trackAudio) };
+      for (const s of sentences) {
+        const key = sentenceId(track, s);
+        if (usedSentences.has(key)) throw new Error("Duplicate sentence IDs.");
+        usedSentences.add(key);
+      }
+      tracks.push(track);
       used.add(duplicate); usedIds.add(id);
     }
     return {tracks, skipped};
@@ -99,9 +106,10 @@
       progress[it.id].lastReviewed === today && progress[it.id].firstReviewed !== today).length;
     const introducedToday = pool.filter(it => progress[it.id] &&
       progress[it.id].firstReviewed === today).length;
+    const remaining = Math.max(0, 10 - alreadyReviewedDue - introducedToday);
     const due = pool.filter(it => progress[it.id] && progress[it.id].due <= today)
       .sort((a, b) => progress[a.id].due.localeCompare(progress[b.id].due))
-      .slice(0, Math.max(0, maxDue - alreadyReviewedDue));
+      .slice(0, Math.min(remaining, Math.max(0, maxDue - alreadyReviewedDue)));
     const unreviewed = pool.filter(it => !progress[it.id]);
     // Let the newest imported real-life lesson appear today, ahead of older unstarted material.
     const imports = unreviewed.filter(it => !!it.t.id);
@@ -111,7 +119,7 @@
     const prioritized = imports.filter(it => it.t.id === latestId)
       .concat(imports.filter(it => it.t.id !== latestId), favorites,
         unreviewed.filter(it => !it.t.id && !stars.has(legacyKey(it.t, it.s))));
-    const fresh = prioritized.slice(0, Math.min(Math.max(0, maxNew - introducedToday), Math.max(0, 10 - due.length)));
+    const fresh = prioritized.slice(0, Math.min(Math.max(0, maxNew - introducedToday), remaining - due.length));
     return {due, fresh, all: due.concat(fresh)};
   }
   root.LynnCore = {LADDER, dayStamp, addDays, trackId, legacyKey, sentenceId, safeAudio, normalizeImport, grade, entries, todayPlan};
