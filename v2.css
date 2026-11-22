@@ -45,3 +45,9 @@ input[type=file]{display:none}button:focus-visible,input:focus-visible,select:fo
 .voice-status[data-state="listening"]{color:#87411e;font-weight:600}
 .voice-status[data-state="error"]{color:#93452f}
 .voice-status[data-state="done"]{color:#236247}
+
+#wordEditor, #wordHistory{scroll-margin-top:12px}
+#wordEditor .word-form{margin-top:12px}
+#wordSaved:empty{display:none}
+.word-history [aria-pressed="true"]{background:#dce9fa;font-weight:700}
+.word-history article p{overflow-wrap:anywhere;white-space:pre-wrap}

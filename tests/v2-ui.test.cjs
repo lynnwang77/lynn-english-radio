@@ -6,6 +6,7 @@ const vm=require("node:vm");
 const dir=path.resolve(__dirname,"..");
 const code=p=>fs.readFileSync(path.join(dir,p),"utf8");
 function boot(preload={}, rejectWrite=()=>false, navigatorOverrides={}){
+  let nextId=Object.keys(preload).length;
   const db={channel:"work",rate:"1.0",zh:"on",...preload};
   const localStorage={
     getItem(k){return Object.hasOwn(db,k)?db[k]:null},
@@ -29,7 +30,7 @@ function boot(preload={}, rejectWrite=()=>false, navigatorOverrides={}){
   const window={speechSynthesis:{cancel(){},speak(){}},confirm(){return true}};
   const context={window,document,localStorage,navigator:{...navigatorOverrides},setTimeout(){},clearTimeout(){},
     FormData:class{constructor(form){return Object.entries(form.fields)}},
-    crypto:{randomUUID:()=>"test-attempt"},
+    crypto:{randomUUID:()=>"test-attempt-"+(++nextId)},
     MediaMetadata:class{},SpeechSynthesisUtterance:class{},Blob:class{},
     URL:{createObjectURL(){return "blob:backup"},revokeObjectURL(){}}
   };
@@ -334,4 +335,60 @@ test("iPhone uses keyboard dictation instead of browser speech recognition",()=>
  assert.equal(speechStarted,false);
  assert.match(ui.els.voiceStatus.textContent,/iOS Dictation/);
  assert.match(ui.els.status.textContent,/iOS Dictation/);
+});
+
+test("five independent Word records survive editing, archive, trash and repeated restore",async()=>{
+  const ui=boot();
+  ui.nav({view:"words"});
+  const submit=fields=>ui.els.content.listeners.submit({target:{id:"wordForm",fields},preventDefault(){}});
+  const wordsKey="lynn.unified.words";
+  const records=()=>JSON.parse(ui.db[wordsKey]);
+  for(let i=1;i<=5;i++){
+    ui.action({action:"new-word"});
+    submit({first:"First sentence "+i,better:"Improved sentence "+i,note:"Note "+i,
+      scene:"Scene "+i,date:"2026-11-"+(15-i)});
+  }
+  const [first,second]=records();
+  assert.equal(new Set(records().map(w=>w.id)).size,5);
+  assert.match(ui.els.content.innerHTML,/Active · 练习中 \(5\)/);
+  assert.ok(ui.els.content.innerHTML.indexOf(first.first)<ui.els.content.innerHTML.indexOf(second.first));
+  ui.action({action:"edit-word",word:first.id});
+  submit({...first,first:"do not overwrite",better:"Edited version"});
+  assert.equal(records()[0].first,first.first);
+  assert.equal(records()[0].better,"Edited version");
+  ui.action({action:"review-word",word:first.id});
+  ui.action({action:"archive-word",word:first.id});
+  const archived=records()[0];
+  assert.equal(archived.archived,true);
+  assert.equal(archived.review,false);
+  ui.window.confirm=()=>false;
+  ui.action({action:"delete-word",word:second.id});
+  assert.equal(records()[1].deleted,undefined);
+  ui.window.confirm=()=>true;
+  ui.action({action:"delete-word",word:second.id});
+  assert.equal(records()[1].deleted,true);
+  const reopened=boot(ui.db);
+  reopened.nav({view:"words"});
+  reopened.action({action:"filter-words",filter:"archived"});
+  assert.match(reopened.els.content.innerHTML,/Edited version.*Note 1.*Scene 1/);
+  reopened.nav({view:"today"});
+  assert.doesNotMatch(reopened.els.content.innerHTML,/Scene 1/);
+
+  const backup={app:"lynn-english-radio",version:2,legacy:{},
+    v2:{importedTracks:[],trackStatus:{},progress:{}},unified:{words:records(),history:{}}};
+  const destination=boot();
+  await destination.upload("restoreFile",backup);
+  await destination.upload("restoreFile",backup);
+  assert.deepEqual(JSON.parse(destination.db[wordsKey]),records());
+  await destination.upload("restoreFile",{...backup,unified:{words:[first,second]}});
+  assert.deepEqual(JSON.parse(destination.db[wordsKey]),records());
+  destination.nav({view:"words"});
+  destination.action({action:"filter-words",filter:"trash"});
+  assert.match(destination.els.content.innerHTML,/First sentence 2/);
+  destination.action({action:"restore-word",word:second.id});
+  destination.action({action:"archive-word",word:first.id});
+  const restored=JSON.parse(destination.db[wordsKey]);
+  assert.equal(restored[0].archived,undefined);
+  assert.equal(restored[0].review,false);
+  assert.equal(restored[1].deleted,undefined);
 });
