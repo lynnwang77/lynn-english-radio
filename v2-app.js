@@ -33,11 +33,13 @@ let mode="study",view=editingWord?"words":"today",selectedTrack="",libraryFilter
 let assignment=get(DAY_KEY,null);
 let revealed=new Set(), currentItems=[], queue=[],queuePos=0,loopQueue=false,playToken=0,playingId="";
 const media=$("player");media.preload="metadata";media.setAttribute("playsinline","");
+const pauseBtn=$("pauseBtn");
 const rate=$("rate");
 const savedRate=Number(raw("rate","1.0"));
 rate.value=({0.85:"0.85",0.95:"0.95",1:"1.0",1.1:"1.1"})[savedRate]||"1.0";
-media.playbackRate=Number(rate.value);
+media.defaultPlaybackRate=media.playbackRate=Number(rate.value);
 let audioActive=false;
+let audioRequest=0, previousAudioSessionType;
 let recognition=null;
 function catalogWith(lessons){return CATALOG.filter(t=>!lessons.some(item=>item.id===t.id))}
 const allTracks=()=>BASE.concat(catalogWith(imported),imported);
@@ -80,6 +82,7 @@ function itemHtml(it,i,practice){
   '</div>'+repeat+review+'</article>';
 }
 function listItems(items,practice){currentItems=items;return items.map((it,i)=>itemHtml(it,i,practice)).join("")}
+function trackSource(t){return Core.safeAudio(t.id?t.trackAudio:A[t.title])}
 function todayHtml(){
  const day=Core.dayStamp(),items=allEntries();
  if(assignment?.day!==day||!Array.isArray(assignment.due)||!Array.isArray(assignment.fresh)){
@@ -118,6 +121,9 @@ function libraryHtml(){
   '<div class="row"><button class="primary" data-action="play-track">▶ Play All</button><button data-action="loop-track">↻ Loop All</button>'+
   '<button data-action="toggle-archive" data-track="'+esc(Core.trackId(t))+'">'+(st==="archive"?"Restore to Current":"Move to Archive")+'</button></div></div>';
  const es=Core.entries([t],overrides);
+ if(mode==="radio")html+='<p class="muted">'+(trackSource(t)?
+  "For lock-screen listening in Safari, use Play All or Loop All for the full lesson MP3.":
+  "This lesson plays one sentence at a time. Keep Safari open and the screen awake for uninterrupted listening.")+'</p>';
  if(t.context)html+='<p class="muted">'+esc(t.context)+'</p>';
  for(const [label,body] of [["Read",t.reading],["Dialogue",t.dialogue]]){
   if(body)html+='<details class="reading"><summary>'+label+'</summary><p>'+esc(body)+'</p><div class="row"><button data-action="read" data-field="'+(label==="Read"?"reading":"dialogue")+'">▶ Listen</button></div></details>';
@@ -127,6 +133,7 @@ function libraryHtml(){
 function favoritesHtml(){
  const es=allEntries().filter(it=>Core.area(it.t)===channel&&isFav(it));
  return '<section class="card"><div class="cardhead"><h2>★ Favorites</h2><div class="row"><button data-action="play-list">▶ Play All</button><button data-action="loop-list">↻ Loop All</button></div></div>'+
+ (mode==="radio"&&es.length?'<p class="muted">Favorites play one sentence at a time. Keep Safari open and the screen awake if playback stops between sentences.</p>':"")+
  (es.length?listItems(es,false):'<div class="empty">Star a sentence in Library or Today to save it here.</div>')+'</section>';
 }
 function masteredHtml(){
@@ -210,17 +217,54 @@ function audioSrc(it){
  const n=it.t.sentences.indexOf(it.s)+1;
  return Core.safeAudio((SA[it.t.title]||{})[String(n)]);
 }
-function session(title,context){
- if(!("mediaSession" in navigator))return;
- try{navigator.mediaSession.metadata=new MediaMetadata({title,artist:"Lynn English Radio",album:context||"English practice"});
- navigator.mediaSession.setActionHandler("play",()=>{if(audioActive)media.play().catch(()=>notice("Tap Play to restart audio."))});
- navigator.mediaSession.setActionHandler("pause",()=>media.pause());
- navigator.mediaSession.setActionHandler("stop",stop);}catch(e){}
+function setAudioSession(active){
+ const audioSession=navigator.audioSession;
+ if(!audioSession)return;
+ try{
+  if(active&&previousAudioSessionType===undefined){
+   const previous=audioSession.type;
+   audioSession.type="playback";
+   previousAudioSessionType=previous;
+  }else if(!active&&previousAudioSessionType!==undefined){
+   audioSession.type=previousAudioSessionType;
+   previousAudioSessionType=undefined;
+  }
+ }catch(e){/* Older browsers still use the native audio element. */}
+}
+function updatePlaybackControls(){
+ pauseBtn.hidden=!audioActive;
+ pauseBtn.textContent=media.paused?"▶ Resume":"Ⅱ Pause";
+ const session=navigator.mediaSession;
+ if(session)try{session.playbackState=audioActive?(media.paused?"paused":"playing"):"none"}catch(e){}
+}
+function setMediaMetadata(metadata){
+ const session=navigator.mediaSession;
+ if(session)try{session.metadata=metadata?new MediaMetadata(metadata):null}catch(e){}
+}
+function releaseRecordedPlayback(){
+ audioActive=false;
+ audioRequest++;
+ setMediaMetadata(null);
+ updatePlaybackControls();
+ setAudioSession(false);
+}
+function resumeRecordedPlayback(){
+ if(!audioActive)return;
+ const request=++audioRequest;
+ const retryMessage="Audio could not start. Return to Safari and tap Resume, or check your connection.";
+ media.play().then(()=>{
+  if(request===audioRequest&&$("status").textContent===retryMessage)notice("Playing recorded audio.");
+ },error=>{
+  if(request!==audioRequest||error.name==="AbortError")return;
+  updatePlaybackControls();
+  if(media.paused)notice(retryMessage);
+ });
 }
 function stop(){
  cancelRecognition();
- playToken++;queue=[];queuePos=0;playingId="";audioActive=false;media.onended=null;media.pause();media.loop=false;
+ playToken++;queue=[];queuePos=0;playingId="";media.onended=null;media.pause();media.loop=false;
  try{media.currentTime=0}catch(e){}
+ releaseRecordedPlayback();
  if("speechSynthesis" in window)window.speechSynthesis.cancel();
  markPlaying();
 }
@@ -325,23 +369,27 @@ function transcribe(field){
  }
 }
 function finishPlayback(msg){
- audioActive=false;playingId="";markPlaying();notice(msg);
+ releaseRecordedPlayback();playingId="";markPlaying();notice(msg);
 }
 function playSource(src,title,context,onEnd,loop){
  if(!src)return false;
- media.pause();media.onended=null;media.loop=!!loop;media.src=src;media.playbackRate=Number(rate.value)||1;
  const token=playToken;
- audioActive=true;session(title,context);media.onended=onEnd;
- media.play().catch(()=>{
-  if(token===playToken)finishPlayback("Audio could not start. Tap Play again or check your connection.");
- });
+ setAudioSession(true);
+ media.loop=!!loop;media.src=src;media.playbackRate=media.defaultPlaybackRate;
+ audioActive=true;
+ setMediaMetadata({title,artist:"Lynn English Radio",album:context||"English practice"});
+ media.onended=()=>{if(token===playToken)onEnd()};
+ updatePlaybackControls();
+ resumeRecordedPlayback();
  return true;
 }
 function speak(en,next){
  if(!("speechSynthesis" in window)){finishPlayback("No recorded audio or browser speech is available.");return}
+ releaseRecordedPlayback();
+ notice("Device voice · Keep Safari open and the screen awake for speech playback.");
  const token=playToken;
  const utter=new SpeechSynthesisUtterance(en);utter.lang="en-US";utter.rate=Number(rate.value)||1;
- utter.onend=next;
+ utter.onend=()=>{if(token===playToken)next()};
  utter.onerror=()=>{if(token===playToken)finishPlayback("Browser speech is unavailable or was interrupted.")};
  window.speechSynthesis.speak(utter);
 }
@@ -359,7 +407,7 @@ function playQueue(items,loop){
 }
 function playTrack(loop){
  const t=allTracks().find(t=>Core.trackId(t)===selectedTrack);if(!t)return;
- const source=Core.safeAudio(t.id?t.trackAudio:A[t.title]);
+ const source=trackSource(t);
  if(source){stop();notice((loop?"Looping · ":"Playing · ")+t.title);playSource(source,t.title,t.meta,()=>finishPlayback("Finished."),loop)}
  else playQueue(Core.entries([t],overrides),loop);
 }
@@ -640,7 +688,20 @@ $("importFile").onchange=async e=>{await importLessons(e.target.files[0]);e.targ
 $("restoreFile").onchange=async e=>{await restoreBackup(e.target.files[0]);e.target.value=""};
 $("zhbtn").onclick=()=>{showZh=!showZh;savePreference("zh",showZh?"on":"off");render()};
 $("stopBtn").onclick=()=>{stop();notice("Stopped.")};
-rate.onchange=()=>{savePreference("rate",rate.value);media.playbackRate=Number(rate.value)||1};
+pauseBtn.onclick=()=>{if(media.paused)resumeRecordedPlayback();else media.pause()};
+media.addEventListener("play",updatePlaybackControls);
+media.addEventListener("playing",updatePlaybackControls);
+media.addEventListener("pause",updatePlaybackControls);
+if(navigator.mediaSession){
+ for(const [action,handler] of Object.entries({
+  play:resumeRecordedPlayback,
+  pause:()=>{if(audioActive)media.pause()},
+  stop:()=>{if(audioActive){stop();notice("Stopped.")}}
+ })){
+  try{navigator.mediaSession.setActionHandler(action,handler)}catch(e){}
+ }
+}
+rate.onchange=()=>{savePreference("rate",rate.value);media.defaultPlaybackRate=media.playbackRate=Number(rate.value)||1};
 $("content").addEventListener("change",e=>{
  if(e.target.id==="libraryFilter"){libraryFilter=e.target.value;selectedTrack="";render()}
  if(e.target.id==="topic"){topic=e.target.value;selectedTrack="";render()}
