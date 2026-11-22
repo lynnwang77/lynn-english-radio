@@ -154,6 +154,8 @@
           typeof w.id !== "string" || !/^[a-z0-9-]{1,120}$/i.test(w.id))
         throw new Error("Invalid personal expression.");
       const result = {id:w.id, review:w.review===true};
+      if (w.archived === true) result.archived = true;
+      if (w.deleted === true) result.deleted = true;
       for (const key of ["first","better","date","scene","note"])
         result[key] = typeof w[key]==="string" ? w[key].trim().slice(0,key==="date"?10:2000) : "";
       return result;

@@ -27,10 +27,11 @@ let overrides=validMap(get(STORAGE.overrides,{}));
 function loadWords(){try{return Core.normalizeWords(get(STORAGE.words,[]))}catch(e){return []}}
 let words=loadWords(),history=validMap(get(STORAGE.history,{})),editingWord="";
 let wordEdit=validMap(get(WORD_EDIT_KEY,{}));
-if(words.some(w=>w.id===wordEdit.id))editingWord=wordEdit.id;
+if(words.some(w=>w.id===wordEdit.id&&!w.deleted))editingWord=wordEdit.id;
 let channel=["work","life","bible"].includes(raw("lynn.area",raw("channel","life")))?raw("lynn.area",raw("channel","life")):"life";
 let mode="study",view=editingWord?"words":"today",selectedTrack="",libraryFilter="current",query="",topic="",showZh=raw("zh","on")!=="off";
 let assignment=get(DAY_KEY,null);
+let wordFilter="active";
 let revealed=new Set(), currentItems=[], queue=[],queuePos=0,loopQueue=false,playToken=0,playingId="";
 const media=$("player");media.preload="metadata";media.setAttribute("playsinline","");
 const rate=$("rate");
@@ -44,9 +45,9 @@ const allTracks=()=>BASE.concat(catalogWith(imported),imported);
 function wordEntry(w){
  const t={id:"personal-"+w.id,channel:"personal",title:"Lynn’s Words"};
  const s={id:"answer",en:w.better||w.first,zh:w.scene||w.note||"Say your own expression from memory."};
- return {t,s,id:"word:"+w.id,status:w.review?"current":"archive",personal:true};
+ return {t,s,id:"word:"+w.id,status:w.review&&!w.archived&&!w.deleted?"current":"archive",personal:true};
 }
-function allEntries(){return Core.entries(allTracks(),overrides).concat(words.map(wordEntry))}
+function allEntries(){return Core.entries(allTracks(),overrides).concat(words.filter(w=>!w.deleted).map(wordEntry))}
 function notice(msg){$("status").textContent=msg}
 function trackStatus(t){return overrides[Core.trackId(t)]||t.status||"current"}
 function changeStatus(t,status){
@@ -130,7 +131,7 @@ function favoritesHtml(){
  (es.length?listItems(es,false):'<div class="empty">Star a sentence in Library or Today to save it here.</div>')+'</section>';
 }
 function masteredHtml(){
- const es=allEntries().filter(it=>(it.personal||Core.area(it.t)===channel)&&progress[it.id]?.mastered);
+ const es=allEntries().filter(it=>(it.personal||Core.area(it.t)===channel)&&progress[it.id]?.mastered&&(!it.personal||it.status==="current"));
  return '<section class="card"><h2>Mastered ✓</h2><p class="muted">These are strong sentences, not forgotten sentences. They return periodically for maintenance.</p>'+
  (es.length?listItems(es,false):'<div class="empty">Practice sentences several times or mark one Mastered after you can say it independently.</div>')+'</section>';
 }
@@ -144,7 +145,9 @@ function wordsHtml(){
  const word=saved?{...saved,...edit.fields,first:saved.first}:validMap(get(WORD_DRAFT_KEY,{}));
  const waiting=edit.stage==="waiting",filled=edit.stage==="filled";
  const input=(key,label,max=2000)=>'<label>'+label+'<input name="'+key+'" maxlength="'+max+'" value="'+esc(word[key]||"")+'"></label>';
- return '<section class="card"><h2>Lynn’s Words</h2><p class="muted">Speak first. Your words do not need to be perfect.</p><form id="wordForm" class="word-form">'+
+ return '<section class="card" id="wordEditor"><h2>Lynn’s Words</h2><div class="row">'+
+  '<button data-action="new-word">＋ New sentence · 练习新句</button><a href="#wordHistory">查看练习历史</a></div>'+
+  '<p id="wordSaved" role="status"></p><form id="wordForm" class="word-form">'+
   (saved?'<p class="muted">Your saved first try is kept as originally entered.</p>':isIOSBrowser()?
    '<div class="voice-entry"><button type="button" class="voice-button" data-action="dictate">🎙 用 iPhone 说英语 · 打开键盘</button>'+
    '<div class="voice-status" id="voiceStatus" role="status" aria-live="polite">先点上面按钮，再点 iPhone 键盘上的麦克风 🎙 说英语。文字会进入 My First Try，不必等待网页聆听。</div></div>':
@@ -167,16 +170,36 @@ function wordsHtml(){
   '<label>What changed? · 修改原因<textarea name="note" maxlength="2000" placeholder="例如：用 went 表达过去。">'+esc(word.note||"")+'</textarea></label>'+
   input("scene","Scene · 使用场景")+
   '<label>Date<input type="date" name="date" value="'+esc(word.date||Core.dayStamp())+'"></label></details>'+
-  '<div class="row"><button class="primary" type="submit">'+(editingWord?"保存修改 · Save changes":"只保存原句")+'</button>'+
+  '<div class="row"><button class="primary" type="submit">'+(editingWord?"保存修改 · Save changes":"保存新句 · Save sentence")+'</button>'+
   (editingWord?'<button type="button" data-action="cancel-word">退出编辑</button>':"")+'</div></form></section>'+
-  '<section class="card"><h2>Saved expressions</h2>'+
+  wordHistoryHtml();
+}
+function wordHistoryHtml(){
+ const groups={active:[],archived:[],trash:[]};
+ for(const word of words)groups[word.deleted?"trash":word.archived?"archived":"active"].push(word);
+ const entries=groups[wordFilter].slice().reverse().sort((a,b)=>b.date.localeCompare(a.date));
+ const labels={active:"Active · 练习中",archived:"Archived · 已归档",trash:"Trash · 回收站"};
+ return '<section class="card word-history" id="wordHistory"><h2>Saved expressions · 练习历史</h2>'+
+  '<p class="muted">按日期从新到旧。同一浏览器可直接回看，换设备请用 Backup / Restore。</p>'+
+  '<div class="row" aria-label="练习历史筛选">'+Object.keys(groups).map(key=>
+   '<button data-action="filter-words" data-filter="'+key+'" aria-pressed="'+(wordFilter===key)+'">'+labels[key]+' ('+groups[key].length+')</button>').join("")+'</div>'+
+  (wordFilter==="archived"?'<p class="muted">归档会暂停 Today 复习。恢复后保留原复习进度，可手动重新加入。Mastered 仍是复习评级。</p>':"")+
+  (wordFilter==="trash"?'<p class="muted">删除的句子可从此处恢复到原列表。备份也保留回收站状态。</p>':"")+
   (Object.keys(history).length?'<p class="muted">'+Object.keys(history).length+' days of practice imported from the original Lynn English.</p>':"")+
-  (words.length?words.slice().reverse().map(w=>'<article class="sentence" data-id="word:'+esc(w.id)+'"><div class="meta">'+esc(w.date)+' '+esc(w.scene)+'</div>'+
-   '<p><strong>My First Try</strong><br>'+esc(w.first)+'</p>'+
-   (w.better?'<p><strong>Better English</strong><br>'+esc(w.better)+'</p>':"")+
-   (w.note?'<p class="muted">'+esc(w.note)+'</p>':"")+
-   '<div class="row"><button data-action="listen-word" data-word="'+esc(w.id)+'">▶ Listen</button><button data-action="edit-word" data-word="'+esc(w.id)+'">Edit</button><button data-action="review-word" data-word="'+esc(w.id)+'">'+(w.review?"Remove from review":"Add to review")+'</button></div></article>').join(""):'<div class="empty">Save an expression in your own words.</div>')+
-  '</section>';
+  (entries.length?entries.map(wordCard).join(""):'<div class="empty">此列表暂时没有练习。</div>')+'</section>';
+}
+function wordCard(w){
+ const button=(action,label)=>'<button data-action="'+action+'" data-word="'+esc(w.id)+'">'+label+'</button>';
+ return '<article class="sentence" data-id="word:'+esc(w.id)+'"><div class="meta">'+esc(w.date)+'</div>'+
+  '<p><strong>My First Try</strong><br>'+esc(w.first)+'</p>'+
+  (w.better?'<p><strong>Better English</strong><br>'+esc(w.better)+'</p>':"")+
+  (w.note?'<p><strong>What changed?</strong><br>'+esc(w.note)+'</p>':"")+
+  (w.scene?'<p><strong>Scene</strong><br>'+esc(w.scene)+'</p>':"")+
+  '<div class="row">'+(w.deleted?button("restore-word","恢复删除的句子"):
+   button("listen-word","▶ Listen")+button("edit-word","Edit")+
+   (w.archived?button("archive-word","Restore to Active · 恢复练习"):
+    button("review-word",w.review?"Remove from review":"Add to review")+button("archive-word","Archive · 归档"))+
+   button("delete-word","Delete · 删除"))+'</div></article>';
 }
 function inboxHtml(){
  const tracks=imported.filter(t=>Core.area(t)===channel&&trackStatus(t)==="inbox");
@@ -369,7 +392,7 @@ function exportBackup(){
  legacy.favorites=JSON.stringify([...favorites]);
  const backup={app:"lynn-english-radio",version:2,exportedAt:new Date().toISOString(),legacy,
   v2:{importedTracks:imported,progress,trackStatus:overrides},
-  unified:{words,history}};
+  unified:{words:loadWords(),history}};
  const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
  const url=URL.createObjectURL(blob),a=document.createElement("a");
  a.href=url;a.download="lynn-english-radio-backup-"+Core.dayStamp()+".json";
@@ -435,7 +458,7 @@ function restoreOldSite(data){
   first:w?.phrase,note:w?.note,
   date:Number.isFinite(new Date(w?.id).getTime())?Core.dayStamp(new Date(w.id)):""
  })));
- const mergedWords=Core.mergeWords(words,incoming);
+ const mergedWords=Core.mergeWords(loadWords(),incoming);
  const mergedHistory={...history};
  for(const [day,steps] of Object.entries(cleanHistory(data.days)))
   mergedHistory[day]=[...new Set([...(mergedHistory[day]||[]),...steps])];
@@ -462,7 +485,7 @@ async function restoreBackup(file){
   });
   const matchingEntries=Core.entries(matchingTracks,{});
   const sourceWords=Core.normalizeWords(data.unified?.words??[]);
-  const mergedWords=Core.mergeWords(words,sourceWords);
+  const mergedWords=Core.mergeWords(loadWords(),sourceWords);
   const mergedHistory={...cleanHistory(data.unified?.history),...history};
   const sourceEntries=new Map(Core.entries(sourceCatalog,{}).concat(sourceWords.map(wordEntry)).map(it=>[it.id,it.s.en]));
   matchingEntries.push(...mergedWords.map(wordEntry));
@@ -512,9 +535,9 @@ function saveWord(form){
  const fields=wordFields(form);
  const latest=loadWords();
  const previous=latest.find(w=>w.id===editingWord);
- if(editingWord&&!previous)throw new Error("This expression is no longer available. Reopen Lynn’s Words.");
+ if(editingWord&&(!previous||previous.deleted))throw new Error("This expression is no longer available. Reopen Lynn’s Words.");
  const [word]=Core.normalizeWords([{...fields,first:previous?.first??fields.first,
-  id:previous?.id||globalThis.crypto.randomUUID(),review:previous?.review,date:fields.date||Core.dayStamp()}]);
+  id:previous?.id||globalThis.crypto.randomUUID(),review:previous?.review,archived:previous?.archived,deleted:previous?.deleted,date:fields.date||Core.dayStamp()}]);
  const next=previous?latest.map(w=>w.id===word.id?word:w):latest.concat(word);
  if(!save(STORAGE.words,next))return null;
  words=next;
@@ -522,6 +545,33 @@ function saveWord(form){
   try{localStorage.removeItem(WORD_DRAFT_KEY)}catch(e){}
  }
  return word;
+}
+function changeWordState(word,action){
+ const updated={...word};
+ if(action==="restore-word"){
+  if(!word.deleted)return;
+  delete updated.deleted;
+ }else{
+  if(word.deleted)return;
+  if(action==="delete-word"){
+   if(!window.confirm("把这条句子移入回收站？它将暂停复习，你仍可从回收站恢复。"))return;
+   updated.deleted=true;
+   updated.review=false;
+  }else if(action==="archive-word"){
+   if(word.archived)delete updated.archived;
+   else updated.archived=true;
+   updated.review=false;
+  }else{
+   if(word.archived)return;
+   updated.review=!word.review;
+  }
+ }
+ const next=loadWords().map(w=>w.id===word.id?updated:w);
+ if(!save(STORAGE.words,next))return;
+ if(updated.deleted&&editingWord===word.id)closeWordEditor();
+ stop();words=next;render();
+ notice(action==="review-word"?(updated.review?"Added to the review pool for your next daily plan.":"Removed from review."):
+  updated.deleted?"已移入回收站，可随时恢复。":updated.archived?"已保存在归档。":"已恢复到练习中。");
 }
 function openCoach(form){
  if(!form.elements.first.value.trim()){form.elements.first.focus();notice("Say or type your first try first.");return}
@@ -580,19 +630,30 @@ $("content").addEventListener("click",e=>{
   if(track&&["reading","dialogue"].includes(field)&&track[field]){stop();speak(track[field],()=>finishPlayback("Finished."))}
   return;
  }
- const word=words.find(w=>w.id===b.dataset.word);
- if(action==="edit-word"&&word){
+ if(action==="new-word"){
+  if(editingWord&&!window.confirm("开始新句？当前未保存的修改将丢弃，已保存的记录会保留。"))return;
+  stop();
+  if(editingWord){closeWordEditor();render()}
+  $("wordForm").querySelector?.('[name="first"]')?.focus();
+  return;
+ }
+ if(action==="filter-words"&&["active","archived","trash"].includes(b.dataset.filter)){
+  stop();wordFilter=b.dataset.filter;render();
+  $("wordHistory").querySelector?.('[aria-pressed="true"]')?.focus({preventScroll:true});
+  return;
+ }
+ const word=loadWords().find(w=>w.id===b.dataset.word);
+ if(word&&["archive-word","delete-word","restore-word","review-word"].includes(action)){
+  changeWordState(word,action);
+  return;
+ }
+ if(action==="edit-word"&&word&&!word.deleted){
   if(editingWord&&editingWord!==word.id&&!window.confirm("切换表达并丢弃尚未保存的修改？"))return;
   editingWord=word.id;
   if(wordEdit.id!==word.id)persistWordEdit({id:word.id,stage:"manual"});
-  render();return;
+  render();$("wordEditor").scrollIntoView?.({block:"start"});return;
  }
- if(action==="listen-word"&&word){playQueue([wordEntry(word)],false);return}
- if(action==="review-word"&&word){
-  const next=words.map(w=>w.id===word.id?{...w,review:!w.review}:w);
-  if(save(STORAGE.words,next)){words=next;render();notice(word.review?"Removed from review.":"Added to the review pool for your next daily plan.")}
-  return;
- }
+ if(action==="listen-word"&&word&&!word.deleted){playQueue([wordEntry(word)],false);return}
  if(action==="track"){stop();selectedTrack=b.dataset.track;render();return}
  if(action==="approve"){const t=imported.find(t=>Core.trackId(t)===b.dataset.track);if(t&&changeStatus(t,"current")){
   stop();view="library";query="";topic="";libraryFilter="current";selectedTrack=Core.trackId(t);
@@ -630,7 +691,13 @@ $("content").addEventListener("submit",event=>{
  if(event.target.id!=="wordForm")return;
  event.preventDefault();
  try{
-  if(saveWord(event.target)){closeWordEditor();render();notice("最终版本已保存 · Expression saved.")}
+  if(saveWord(event.target)){
+   if(!editingWord)wordFilter="active";
+   closeWordEditor();render();
+   const message="最终版本已保存 · 共 "+words.filter(w=>!w.deleted).length+" 句";
+   $("wordSaved").textContent=message;
+   notice(message);
+  }
  }catch(e){notice(e.message)}
 });
 $("importBtn").onclick=()=>$("importFile").click();
@@ -661,6 +728,7 @@ window.addEventListener?.("storage",event=>{
  progress=cleanProgress(get(STORAGE.progress,{}));
  overrides=validMap(get(STORAGE.overrides,{}));
  words=loadWords();history=cleanHistory(get(STORAGE.history,{}));
+ if(editingWord&&!words.some(w=>w.id===editingWord&&!w.deleted))editingWord="";
  render();
 });
 render();notice("Ready.");
