@@ -21,6 +21,12 @@ function boot(preload={}, rejectWrite=()=>false, navigatorOverrides={}){
   });
   for(const id of ["player","nav","content","status","rate","importBtn","exportBtn",
     "restoreBtn","importFile","restoreFile","zhbtn","stopBtn"])element(id);
+  const player=els.player;
+  Object.assign(player,{
+    paused:true,
+    pause(){this.paused=true;this.listeners.pause?.()},
+    play(){this.paused=false;this.listeners.play?.();return Promise.resolve()}
+  });
   const document={
     getElementById:element,querySelectorAll(){return []},
     createElement(){return {click(){},remove(){}}},
@@ -148,14 +154,110 @@ test("recorded legacy audio remains the first playback choice",()=>{
   ui.action({action:"play-one",index:"0"});
   assert.match(ui.els.player.src,/audio\/sentences\/balance-sheet-core-terms-01\.mp3/);
 });
-test("new imported phrases without MP3 can fall back to browser speech",async()=>{
-  const ui=boot();
+
+test("Radio loops a whole MP3 and system controls resume the same position",()=>{
+  const handlers={};
+  const mediaSession={
+    setActionHandler(action,handler){
+      if(action==="stop")throw new Error("Unsupported");
+      handlers[action]=handler;
+    }
+  };
+  const audioSession={type:"auto"};
+  const ui=boot({channel:"work",rate:"0.85"},undefined,{mediaSession,audioSession});
+  ui.nav({mode:"radio"});
+  assert.match(ui.els.content.innerHTML,/lock-screen listening/);
+  ui.action({action:"loop-track"});
+  const player=ui.els.player;
+  const src=player.src;
+  assert.match(src,/audio\/tracks\/balance-sheet-core-terms\.mp3/);
+  assert.equal(player.loop,true);
+  assert.equal(player.playbackRate,0.85);
+  assert.equal(audioSession.type,"playback");
+  assert.equal(mediaSession.playbackState,"playing");
+  player.currentTime=12;
+  handlers.pause();
+  assert.equal(mediaSession.playbackState,"paused");
+  assert.match(ui.els.pauseBtn.textContent,/Resume/);
+  handlers.play();
+  assert.equal(player.src,src);
+  assert.equal(player.currentTime,12);
+  assert.equal(mediaSession.playbackState,"playing");
+  ui.els.rate.value="1.1";
+  ui.els.rate.onchange();
+  assert.equal(player.defaultPlaybackRate,1.1);
+  assert.equal(player.playbackRate,1.1);
+  ui.els.stopBtn.onclick();
+  handlers.play();
+  assert.equal(player.paused,true);
+  assert.equal(player.loop,false);
+  assert.equal(player.currentTime,0);
+  assert.equal(ui.els.pauseBtn.hidden,true);
+  assert.equal(mediaSession.playbackState,"none");
+  assert.equal(mediaSession.metadata,null);
+  assert.equal(audioSession.type,"auto");
+});
+
+test("Favorites progress through recordings but a single recorded loop is native",()=>{
+  const ui=boot({channel:"work",favorites:JSON.stringify([oldFav])});
+  ui.nav({mode:"radio"});
+  ui.action({action:"favorite",index:"0"});
+  ui.nav({view:"favorites"});
+  assert.match(ui.els.content.innerHTML,/Favorites play one sentence at a time/);
+  ui.action({action:"play-list"});
+  const player=ui.els.player;
+  assert.equal(player.loop,false);
+  assert.match(player.src,/balance-sheet-core-terms-01\.mp3/);
+  player.onended();
+  assert.match(player.src,/bank-account-opening-01\.mp3/);
+  player.onended();
+  assert.match(ui.els.status.textContent,/Finished/);
+  assert.equal(ui.els.pauseBtn.hidden,true);
+  ui.action({action:"loop-one",index:"0"});
+  assert.equal(player.loop,true);
+});
+
+test("a mixed queue releases the recorded media session when it switches to device speech",async()=>{
+  const mediaSession={setActionHandler(){}};
+  const audioSession={type:"auto"};
+  const ui=boot({},undefined,{mediaSession,audioSession});
   let spoken=0;
   ui.window.speechSynthesis.speak=()=>{spoken++};
   await ui.upload("importFile",{version:1,tracks:[{id:"new-no-audio",channel:"life",
-    title:"New Scene",sentences:[{id:"s1",en:"Can you help me?",zh:"能帮我吗？"}]}]});
-  ui.action({action:"play-one",index:"0"});
+    title:"New Scene",sentences:[
+      {id:"recorded",en:"Good morning.",zh:"早上好。",audio:"audio/sentences/a-quiet-day-01.mp3"},
+      {id:"s1",en:"Can you help me?",zh:"能帮我吗？"}
+    ]}]});
+  ui.action({action:"approve",track:"import:new-no-audio"});
+  ui.action({action:"play-track"});
+  assert.equal(audioSession.type,"playback");
+  ui.els.player.onended();
   assert.equal(spoken,1);
+  assert.match(ui.els.status.textContent,/Device voice.*screen awake/);
+  assert.equal(audioSession.type,"auto");
+  assert.equal(mediaSession.metadata,null);
+  assert.equal(ui.els.pauseBtn.hidden,true);
+});
+
+test("a blocked queue transition can resume without skipping the sentence",async()=>{
+  const ui=boot({channel:"work",favorites:JSON.stringify([oldFav])});
+  ui.nav({mode:"radio"});
+  ui.action({action:"favorite",index:"0"});
+  ui.nav({view:"favorites"});
+  ui.action({action:"play-list"});
+  const player=ui.els.player;
+  const play=player.play;
+  player.pause();
+  player.play=()=>Promise.reject(new Error("Playback blocked"));
+  player.onended();
+  await Promise.resolve();
+  assert.match(ui.els.status.textContent,/tap Resume/);
+  assert.match(ui.els.pauseBtn.textContent,/Resume/);
+  const nextSrc=player.src;
+  player.play=play;
+  ui.els.pauseBtn.onclick();
+  assert.equal(player.src,nextSrc);
+  assert.equal(player.paused,false);
 });
 
 test("an imported lesson with a legacy title in the other channel uses its own audio",async()=>{
