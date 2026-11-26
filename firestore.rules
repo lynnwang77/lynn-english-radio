@@ -1,16 +1,31 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function verified(uid) {
+      return request.auth != null && request.auth.uid == uid
+        && request.auth.token.email_verified == true;
+    }
+    function recent() {
+      return request.time.toMillis() - request.auth.token.auth_time * 1000 < 300000;
+    }
+    function purging(uid) {
+      let path = /databases/$(database)/documents/syncUsers/$(uid);
+      return exists(path) && get(path).data.purging == true;
+    }
+    match /syncUsers/{uid} {
+      allow get: if verified(uid);
+      allow create, update: if verified(uid) && recent()
+        && request.resource.data.keys().hasOnly(['purging'])
+        && request.resource.data.purging == true;
+    }
     match /syncUsers/{uid}/changes/{id} {
-      function owner() {
-        return request.auth != null && request.auth.uid == uid
-          && request.auth.token.email_verified == true;
-      }
-      allow read: if owner();
-      allow create: if owner()
+      allow read: if verified(uid);
+      allow delete: if verified(uid) && recent() && purging(uid);
+      allow create: if verified(uid) && !purging(uid)
         && id.matches('^[a-f0-9-]{36}$')
-        && request.resource.data.keys().hasOnly(['id','key','parents','payload'])
+        && request.resource.data.keys().hasOnly(['id','key','parents','payload','committedAt'])
         && request.resource.data.id == id
+        && request.resource.data.committedAt == request.time
         && request.resource.data.key is string && request.resource.data.key.size() <= 6000
         && request.resource.data.parents is list && request.resource.data.parents.size() <= 100
         && request.resource.data.payload is string && request.resource.data.payload.size() <= 250000;

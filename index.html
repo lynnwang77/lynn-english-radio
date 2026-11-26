@@ -63,7 +63,14 @@
   <div class="row" id="syncSession" hidden>
     <button id="syncVerify" hidden>发送验证邮件</button>
     <button id="syncSignout">退出同步</button>
+    <button id="syncArchive">导出含冲突版本的备份</button>
+    <details>
+     <summary>删除云端测试账户</summary>
+     <label>重新输入密码 <input type="password" id="syncDeletePassword" autocomplete="current-password" required></label>
+     <button id="syncDeleteAccount">永久删除云端数据与账户</button>
+    </details>
   </div>
+  <button id="syncClearLocal" hidden>清除这台设备的个人记录</button>
   <div id="syncMigration" hidden>
     <p id="syncPreview"></p>
     <div id="syncDifferences"></div>
@@ -76,7 +83,7 @@
  <section id="content"></section>
  <footer class="note">
   Your existing AI Normal MP3s and playlists remain unchanged. New imported sentences use your device's English speech voice unless an audio file is provided.
-  Progress, Inbox and Favorites stay in this browser; use Backup regularly. No account or paid service is required.
+  <span id="syncFooter">未启用私人同步 · 学习记录保存在此浏览器。可以随时下载 Backup。</span>
   <a href="index-v8.1.html">Original v8.1 player</a> · <a href="v8.html">v8 audio test</a>
  </footer>
  <audio id="player" preload="metadata"></audio>

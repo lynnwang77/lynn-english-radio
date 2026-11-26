@@ -18,6 +18,34 @@ function records(snapshot){
  if(plan?.day)out.set(recordKey(daily,plan.day),plan);
  return out;
 }
+const variantID=id=>/^sync-[a-f0-9]{64}$/.test(id);
+async function normalizeCourses(snapshot){
+ const lessons=snapshot["lynn.v2.importedTracks"]||[];
+ const progress={...snapshot["lynn.v2.progress"]};
+ const statuses={...snapshot["lynn.v2.trackStatus"]};
+ const favorites=new Set(snapshot.favorites||[]);
+ const ids=new Map();
+ const tracks=await Promise.all(lessons.map(async lesson=>{
+  if(variantID(lesson.id))return lesson;
+  const bytes=new TextEncoder().encode(canonical(lesson));
+  const hash=await globalThis.crypto.subtle.digest("SHA-256",bytes);
+  const id="sync-"+Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,"0")).join("");
+  for(const sentence of lesson.sentences||[]){
+   ids.set("import:"+lesson.id+":"+sentence.id,"import:"+id+":"+sentence.id);
+   const oldFavorite=[lesson.channel,lesson.title,sentence.en].join("||");
+   if(favorites.delete(oldFavorite))favorites.add("import:"+id+":"+sentence.id);
+  }
+  const oldKey="import:"+lesson.id;
+  if(Object.hasOwn(statuses,oldKey)){statuses["import:"+id]=statuses[oldKey];delete statuses[oldKey]}
+  return {...lesson,id};
+ }));
+ for(const [before,after] of ids){
+  if(Object.hasOwn(progress,before)){progress[after]=progress[before];delete progress[before]}
+ }
+ const plan=snapshot[daily];
+ return {...snapshot,"lynn.v2.importedTracks":tracks,"lynn.v2.progress":progress,"lynn.v2.trackStatus":statuses,
+  favorites:[...favorites],[daily]:plan?.day?{...plan,due:plan.due.map(id=>ids.get(id)||id),fresh:plan.fresh.map(id=>ids.get(id)||id)}:null};
+}
 function canonical(value){
  if(Array.isArray(value))return "["+value.map(canonical).join(",")+"]";
  if(value&&typeof value==="object")return "{"+Object.keys(value).sort().map(k=>JSON.stringify(k)+":"+canonical(value[k])).join(",")+"}";
@@ -71,5 +99,5 @@ function differences(before,after){
   return equal(before.get(key),after.get(key))?[]:[[key,after.get(key)??null]];
  });
 }
-root.LynnSync={keys,records,heads,alternatives,project,differences,equal};
+root.LynnSync={keys,normalizeCourses,records,heads,alternatives,project,differences,equal};
 })(typeof window==="undefined"?globalThis:window);

@@ -386,13 +386,13 @@ function playTrack(loop){
  if(source){stop();notice((loop?"Looping · ":"Playing · ")+t.title);playSource(source,t.title,t.meta,()=>finishPlayback("Finished."),loop)}
  else playQueue(Core.entries([t],overrides),loop);
 }
-function exportBackup(){
+function exportBackup(_event, syncArchive){
  const keys=["favorites","channel","view","zh","rate","v8channel","v8zh","v8rate"];
  const legacy={};keys.forEach(k=>{try{legacy[k]=localStorage.getItem(k)}catch(e){legacy[k]=null}});
  legacy.favorites=JSON.stringify([...favorites]);
  const backup={app:"lynn-english-radio",version:2,exportedAt:new Date().toISOString(),legacy,
   v2:{importedTracks:imported,progress,trackStatus:overrides},
-  unified:{words:loadWords(),history,today:get(DAY_KEY,null)}};
+  unified:{words:loadWords(),history,today:get(DAY_KEY,null)},...(syncArchive?{syncArchive}:{})};
  const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
  const url=URL.createObjectURL(blob),a=document.createElement("a");
  a.href=url;a.download="lynn-english-radio-backup-"+Core.dayStamp()+".json";
@@ -751,7 +751,8 @@ window.LynnSyncApp={
   window.dispatchEvent(new StorageEvent("storage",{key:null}));
   return true;
  },
- backup:exportBackup,
+ backup:archive=>exportBackup(null,archive),
+ localKeys:[...Object.values(STORAGE),DAY_KEY,WORD_EDIT_KEY,WORD_DRAFT_KEY,"favorites"],
  today:Core.dayStamp
 };
 render();notice("Ready.");

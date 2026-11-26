@@ -42,3 +42,28 @@ test("daily rollover preserves older plans without reintroducing their entries",
  assert.equal(sync.differences(old,next).length,1);
  assert.equal(sync.project(sync.heads([...old].map(([key,value])=>op("1",key,value))),day)["lynn.unified.today"],null);
 });
+
+test("same legacy course ID with different content keeps each course, progress, favorite and daily reference",async()=>{
+ const snapshot=en=>({
+  "lynn.v2.importedTracks":[{id:"same",channel:"life",title:"Library",sentences:[{id:"a",en,zh:"句子"}]}],
+  "lynn.v2.progress":{"import:same:a":{reviews:en==="One."?1:2}},
+  "lynn.v2.trackStatus":{"import:same":"current"},
+  favorites:["life||Library||"+en],
+  "lynn.unified.today":{day,due:["import:same:a"],fresh:[]}
+ });
+ const left=await sync.normalizeCourses(snapshot("One."));
+ const right=await sync.normalizeCourses(snapshot("Two."));
+ const recordSets=[left,right].map(s=>sync.records(s));
+ const ops=recordSets.flatMap((set,i)=>[...set].map(([key,value],j)=>op(i+"-"+j,key,value)));
+ const merged=sync.project(sync.heads(ops),day);
+ assert.equal(merged["lynn.v2.importedTracks"].length,2);
+ for(const lesson of merged["lynn.v2.importedTracks"]){
+  const sentence="import:"+lesson.id+":a";
+  assert.equal(merged["lynn.v2.progress"][sentence].reviews,lesson.sentences[0].en==="One."?1:2);
+  assert.equal(merged["lynn.v2.trackStatus"]["import:"+lesson.id],"current");
+  assert.ok(merged.favorites.includes(sentence));
+ }
+ assert.deepEqual(await sync.normalizeCourses(left),left);
+ require("../v2-core.js");
+ assert.equal(globalThis.LynnCore.normalizeImport({version:1,tracks:merged["lynn.v2.importedTracks"]},[],{backup:true}).tracks.length,2);
+});

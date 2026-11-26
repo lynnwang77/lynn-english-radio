@@ -15,7 +15,9 @@
     return dayStamp(d);
   }
   function trackId(t) { return t.id ? "import:" + t.id : t.channel + "||" + t.title; }
-  function legacyKey(t, s) { return [t.channel, t.title, s.en].join("||"); }
+  function legacyKey(t, s) {
+    return s.id && /^sync-[a-f0-9]{64}$/.test(t.id) ? sentenceId(t,s) : [t.channel, t.title, s.en].join("||");
+  }
   function sentenceId(t, s) { return t.id && s.id ? "import:" + t.id + ":" + s.id : legacyKey(t, s); }
   function area(t) {
     return t.channel === "life" && t.title === "Psalm 23 — By Still Waters" ? "bible" : t.channel;
@@ -42,7 +44,7 @@
         throw new Error("Invalid lesson. Each needs a Life, Work or Bible channel, title, and 1–100 sentences.");
       const title = raw.title.trim();
       const duplicate = raw.channel + "||" + title.toLowerCase();
-      if (used.has(duplicate) || (raw.id && usedIds.has(raw.id))) { skipped++; continue; }
+      if ((used.has(duplicate) && !(backup && /^sync-[a-f0-9]{64}$/.test(raw.id))) || (raw.id && usedIds.has(raw.id))) { skipped++; continue; }
       const id = (typeof raw.id === "string" && /^[\w.:-]{1,80}$/.test(raw.id)) ?
         raw.id : "lesson-" + simpleHash(raw.channel + "|" + title);
       if (usedIds.has(id)) { skipped++; continue; }

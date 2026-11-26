@@ -10,18 +10,18 @@ const pass="SamplePassword123";
 const localWord=(id,first)=>({id,first,better:first,note:"Practice",scene:"Library",date:"2026-11-26"});
 const wordStore="lynn.unified.words";
 async function seedAuth(){
- await fetch("http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/projects/demo-lynn-sync/accounts",{method:"POST",
+ return fetch("http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/projects/demo-lynn-sync/accounts",{method:"POST",
   headers:{"Content-Type":"application/json",Authorization:"Bearer owner"},
-  body:JSON.stringify({email:verified,password:pass,emailVerified:true})}).then(async r=>assert.ok(r.ok,await r.text()));
+  body:JSON.stringify({email:verified,password:pass,emailVerified:true})}).then(async r=>{const data=await r.json();assert.ok(r.ok,JSON.stringify(data));return data.localId});
 }
 (async()=>{
- await seedAuth();
+ const uid=await seedAuth();
  const config=process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH,args:["--no-sandbox"]}:{};
  const browser=await chromium.launch(config);
  try{
   const devicesToTest=[{},devices["iPhone 15"]];
   const pages=[];
-  const cloudCount=async()=>fetch("http://127.0.0.1:8080/v1/projects/demo-lynn-sync/databases/(default)/documents:runQuery",{method:"POST",
+  const cloudCount=async()=>fetch("http://127.0.0.1:8080/v1/projects/demo-lynn-sync/databases/(default)/documents/syncUsers/"+uid+":runQuery",{method:"POST",
    headers:{"Content-Type":"application/json",Authorization:"Bearer owner"},
    body:JSON.stringify({structuredQuery:{from:[{collectionId:"changes",allDescendants:true}]}})}).then(r=>r.json()).then(rows=>rows.filter(row=>row.document).length);
   for(const [i,options] of devicesToTest.entries()){
@@ -39,7 +39,7 @@ async function seedAuth(){
    await page.goto(base);
    await page.evaluate(([key,words])=>localStorage.setItem(key,JSON.stringify(words)),[wordStore,
     [localWord("shared",i?"Desktop alternate.":"Phone alternate."),localWord("only-"+i,"Only device "+i)]]);
-   await page.locator("#syncPanel summary").click();
+   await page.locator("#syncPanel > summary").click();
    await page.waitForFunction(()=>!document.querySelector("#syncLogin").hidden,{},{timeout:20000}).catch(async error=>{console.error(await page.locator("#syncStatus").innerText());throw error});
    await page.locator("#syncLogin input[name=email]").fill(verified);
    await page.locator("#syncLogin input[name=password]").fill(pass);
@@ -74,6 +74,37 @@ async function seedAuth(){
   assert.ok(!(await a.evaluate(key=>JSON.parse(localStorage.getItem(key)).find(word=>word.id==="only-0").archived,wordStore)));
   await b.context().setOffline(false);
   await a.waitForFunction(key=>JSON.parse(localStorage.getItem(key)).find(word=>word.id==="only-0")?.archived,wordStore);
-  console.log("Firebase emulator browser test: login, pre-confirmation isolation, backup, two-device merge, conflicts and offline retry passed");
+  const tab=await a.context().newPage();
+  await tab.goto(base);
+  await tab.locator("#syncPanel > summary").click();
+  await tab.locator("#syncStatus").filter({hasText:"服务器已确认"}).waitFor({timeout:30000});
+  await tab.close();
+  const exported=a.waitForEvent("download");
+  await a.locator("#syncArchive").click();
+  const archive=JSON.parse(await readFile(await (await exported).path(),"utf8")).syncArchive;
+  assert.ok(archive.operations.some(op=>op.value?.first==="Desktop alternate."));
+  assert.ok(archive.operations.some(op=>op.value?.first==="Phone alternate."));
+  await b.locator("#syncSignout").click();
+  await b.locator("#syncClearLocal").waitFor();
+  b.once("dialog",dialog=>dialog.dismiss());
+  await b.locator("#syncClearLocal").click();
+  assert.ok(await b.evaluate(key=>localStorage.getItem(key),wordStore));
+  b.once("dialog",dialog=>dialog.accept());
+  await b.locator("#syncClearLocal").click();
+  await b.waitForFunction(key=>localStorage.getItem(key)===null,wordStore);
+  assert.ok(await cloudCount());
+  await a.getByText("删除云端测试账户",{exact:true}).click();
+  await a.locator("#syncDeletePassword").fill("IncorrectPassword");
+  a.once("dialog",dialog=>dialog.accept());
+  await a.locator("#syncDeleteAccount").click();
+  await a.locator("#syncStatus").filter({hasText:"同步失败"}).waitFor();
+  assert.ok(await cloudCount());
+  await a.locator("#syncDeletePassword").fill(pass);
+  a.once("dialog",dialog=>dialog.accept());
+  await a.locator("#syncDeleteAccount").click();
+  await a.locator("#syncStatus").filter({hasText:"云端测试账户已删除"}).waitFor({timeout:30000});
+  assert.equal(await cloudCount(),0);
+  assert.ok(await a.evaluate(key=>localStorage.getItem(key),wordStore));
+  console.log("Firebase emulator browser test: login, pre-confirmation isolation, backup, two-device merge, conflicts, offline retry, second tab, export, local clearing and cloud account deletion passed");
  }finally{await browser.close()}
 })().catch(error=>{console.error(error);process.exitCode=1});

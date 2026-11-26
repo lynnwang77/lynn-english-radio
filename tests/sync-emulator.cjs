@@ -1,6 +1,6 @@
 const assert=require("node:assert/strict");
 const {initializeTestEnvironment}=require("@firebase/rules-unit-testing");
-const {collection,doc,getDocs,runTransaction}=require("firebase/firestore");
+const {collection,doc,getDocs,runTransaction,serverTimestamp}=require("firebase/firestore");
 require("../v2-sync-core.js");
 const core=globalThis.LynnSync;
 const key=(store,id)=>JSON.stringify([store,id]);
@@ -17,7 +17,7 @@ const id=n=>"00000000-0000-4000-8000-"+String(n).padStart(12,"0");
   const progress=key("lynn.v2.progress","word:same");
   const write=(db,n,key,value,parents=[])=>runTransaction(db,async tx=>{
    const ref=doc(db,"syncUsers","sync-demo","changes",id(n));
-   if(!(await tx.get(ref)).exists())tx.set(ref,{id:id(n),key,payload:JSON.stringify(value),parents:parents.map(id)});
+   if(!(await tx.get(ref)).exists())tx.set(ref,{id:id(n),key,payload:JSON.stringify(value),parents:parents.map(id),committedAt:serverTimestamp()});
   });
   const read=async db=>{
    const snapshot=await getDocs(collection(db,"syncUsers","sync-demo","changes"));
