@@ -1,5 +1,4 @@
 import {journal} from "./v2-sync-cache.js";
-const config=window.LynnSyncConfig;
 const core=window.LynnSync;
 const app=window.LynnSyncApp;
 const byId=id=>document.getElementById(id);
@@ -225,7 +224,7 @@ async function confirmMigration(){
 }
 async function deleteCloudAccount(){
  const account=auth.currentUser;
- if(!account?.emailVerified||!confirm("永久删除此测试账户及其全部云端学习记录？此设备的本地副本会保留。请先导出备份。"))return;
+ if(!account?.emailVerified||!confirm("永久删除此账户及其全部云端学习记录？此设备的本地副本会保留。请先导出备份。"))return;
  const credentialForm=byId("syncDeletePassword");
  const password=credentialForm.value;
  if(!password){credentialForm.reportValidity();return}
@@ -247,16 +246,17 @@ async function deleteCloudAccount(){
   await journal(account.uid,"delete");
   await authApi.deleteUser(account);
   localStorage.removeItem(key);
-  status("云端测试账户已删除 · 本机记录保留");
+  status("云端账户已删除 · 本机记录保留");
  }finally{deleting=false}
 }
 async function start(){
- if(!config){
-  login.hidden=true;
-  status("尚未连接 Firebase 测试项目 · 仍可在此浏览器试用学习功能");
-  return;
- }
  try{
+  const config=core.syncConfiguration(window.LynnSyncConfig,location);
+  if(!config){status("私人同步尚未开放 · 可以继续在本机学习");return}
+  if(config.mode!=="production"){
+   byId("syncLabel").textContent="私人同步 · Private sync (test)";
+   byId("syncNotice").textContent="测试版仅使用虚构数据。确认合并后才上传本机学习记录。";
+  }
   const sdk="https://www.gstatic.com/firebasejs/12.10.0/";
   const [firebase,authModule,firestore]=await Promise.all([
    import(sdk+"firebase-app.js"),import(sdk+"firebase-auth.js"),import(sdk+"firebase-firestore.js")

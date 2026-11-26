@@ -19,6 +19,13 @@ const {collection,doc,getDoc,getDocs,setDoc,deleteDoc,serverTimestamp}=require("
    await assertFails(getDocs(collection(db,"syncUsers","owner","changes")));
    await assertFails(setDoc(doc(db,"syncUsers","owner","changes","00000000-0000-4000-8000-000000000002"),{...change,id:"00000000-0000-4000-8000-000000000002"}));
   }
+  const otherRef=doc(other,"syncUsers","other","changes",id);
+  if(process.argv.includes("--production")){
+   await assertFails(getDoc(otherRef));
+   await assertFails(setDoc(otherRef,change));
+  }else{
+   await assertSucceeds(setDoc(otherRef,change));
+  }
   await assertFails(setDoc(ref(owner),{...change,payload:"null"}));
   await assertFails(deleteDoc(ref(owner)));
   const guard=doc(owner,"syncUsers","owner");

@@ -4,6 +4,28 @@ const lists={"lynn.unified.words":"id","lynn.v2.importedTracks":"id"};
 const maps=["lynn.v2.progress","lynn.v2.trackStatus","lynn.unified.legacyDays"];
 const daily="lynn.unified.today";
 const keys=[...Object.keys(lists),...maps,"favorites",daily];
+const productionOrigin="https://lynnwang77.github.io";
+const testProject="lynn-english-sync-test";
+function productionFirebase(firebase){
+ const {projectId,apiKey,authDomain,appId,messagingSenderId}=firebase||{};
+ if(typeof projectId!=="string"||!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId)
+  ||projectId===testProject||authDomain!==projectId+".firebaseapp.com"
+  ||typeof apiKey!=="string"||!/^AIza[\w-]{35}$/.test(apiKey)
+  ||typeof messagingSenderId!=="string"||!/^\d+$/.test(messagingSenderId)
+  ||typeof appId!=="string"||!new RegExp("^1:"+messagingSenderId+":web:[a-f0-9]+$").test(appId))
+  throw new Error("生产 Firebase Web App 配置无效");
+ return {projectId,apiKey,authDomain,appId,messagingSenderId};
+}
+function syncConfiguration(config,{origin,pathname}){
+ if(!config)return null;
+ if(origin===productionOrigin){
+  if(!pathname.startsWith("/lynn-english-radio/")||config.mode!=="production"||config.emulator)
+   throw new Error("此网址仅接受生产同步配置");
+  return {...config,firebase:productionFirebase(config.firebase)};
+ }
+ if(config.mode==="production")throw new Error("生产同步配置仅可在正式网址使用");
+ return config;
+}
 const recordKey=(store,id)=>JSON.stringify([store,id]);
 function records(snapshot){
  const out=new Map();
@@ -99,5 +121,5 @@ function differences(before,after){
   return equal(before.get(key),after.get(key))?[]:[[key,after.get(key)??null]];
  });
 }
-root.LynnSync={keys,normalizeCourses,records,heads,alternatives,project,differences,equal};
+root.LynnSync={keys,normalizeCourses,records,heads,alternatives,project,differences,equal,productionFirebase,syncConfiguration};
 })(typeof window==="undefined"?globalThis:window);

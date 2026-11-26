@@ -52,11 +52,11 @@
  </div>
  <div class="status" id="status" role="status" aria-live="polite">Loading your lessons…</div>
  <details class="reading" id="syncPanel">
-  <summary>私人同步 · Private sync (test)</summary>
-  <p>测试版仅使用虚构数据。保存在此浏览器的记录只有在确认迁移后才上传。</p>
+  <summary id="syncLabel">私人同步 · Private sync</summary>
+  <p id="syncNotice">首次同步前请先备份。确认合并后才上传本机学习记录。</p>
   <p id="syncStatus" role="status">仅本机保存</p>
   <form id="syncLogin" class="word-form" hidden>
-    <label>测试邮箱<input name="email" type="email" autocomplete="username" required></label>
+    <label>邮箱<input name="email" type="email" autocomplete="username" required></label>
     <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
     <div class="row"><button>登录</button><button type="button" id="syncReset">找回密码</button></div>
   </form>
@@ -65,7 +65,7 @@
     <button id="syncSignout">退出同步</button>
     <button id="syncArchive">导出含冲突版本的备份</button>
     <details>
-     <summary>删除云端测试账户</summary>
+     <summary>删除云端账户</summary>
      <label>重新输入密码 <input type="password" id="syncDeletePassword" autocomplete="current-password" required></label>
      <button id="syncDeleteAccount">永久删除云端数据与账户</button>
     </details>

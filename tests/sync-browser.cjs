@@ -97,7 +97,7 @@ async function seedAuth(){
   await chooseDialog(b,"#syncClearLocal",true);
   await b.waitForFunction(key=>localStorage.getItem(key)===null,wordStore);
   assert.ok(await cloudCount());
-  await a.getByText("删除云端测试账户",{exact:true}).click();
+  await a.getByText("删除云端账户",{exact:true}).click();
   await a.locator("#syncDeletePassword").fill("IncorrectPassword");
   await chooseDialog(a,"#syncDeleteAccount",true);
   await a.locator("#syncStatus").filter({hasText:"同步失败"}).waitFor();
