@@ -9,6 +9,12 @@ const verified="lynn-test@example.invalid";
 const pass="SamplePassword123";
 const localWord=(id,first)=>({id,first,better:first,note:"Practice",scene:"Library",date:"2026-11-26"});
 const wordStore="lynn.unified.words";
+async function chooseDialog(page,selector,accept){
+ const handled=new Promise((resolve,reject)=>page.once("dialog",dialog=>
+  (accept?dialog.accept():dialog.dismiss()).then(resolve,reject)));
+ await page.locator(selector).click();
+ await handled;
+}
 async function seedAuth(){
  return fetch("http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/projects/demo-lynn-sync/accounts",{method:"POST",
   headers:{"Content-Type":"application/json",Authorization:"Bearer owner"},
@@ -86,22 +92,18 @@ async function seedAuth(){
   assert.ok(archive.operations.some(op=>op.value?.first==="Phone alternate."));
   await b.locator("#syncSignout").click();
   await b.locator("#syncClearLocal").waitFor();
-  b.once("dialog",dialog=>dialog.dismiss());
-  await b.locator("#syncClearLocal").click();
+  await chooseDialog(b,"#syncClearLocal",false);
   assert.ok(await b.evaluate(key=>localStorage.getItem(key),wordStore));
-  b.once("dialog",dialog=>dialog.accept());
-  await b.locator("#syncClearLocal").click();
+  await chooseDialog(b,"#syncClearLocal",true);
   await b.waitForFunction(key=>localStorage.getItem(key)===null,wordStore);
   assert.ok(await cloudCount());
   await a.getByText("删除云端测试账户",{exact:true}).click();
   await a.locator("#syncDeletePassword").fill("IncorrectPassword");
-  a.once("dialog",dialog=>dialog.accept());
-  await a.locator("#syncDeleteAccount").click();
+  await chooseDialog(a,"#syncDeleteAccount",true);
   await a.locator("#syncStatus").filter({hasText:"同步失败"}).waitFor();
   assert.ok(await cloudCount());
   await a.locator("#syncDeletePassword").fill(pass);
-  a.once("dialog",dialog=>dialog.accept());
-  await a.locator("#syncDeleteAccount").click();
+  await chooseDialog(a,"#syncDeleteAccount",true);
   await a.locator("#syncStatus").filter({hasText:"云端测试账户已删除"}).waitFor({timeout:30000});
   assert.equal(await cloudCount(),0);
   assert.ok(await a.evaluate(key=>localStorage.getItem(key),wordStore));
