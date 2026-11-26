@@ -9,9 +9,17 @@ const status=message=>{
 };
 const key="lynn.sync.test.v1";
 const withLock=action=>navigator.locks?navigator.locks.request(key,action):Promise.resolve().then(action);
-const readRaw=()=>core.records(app.read(core.keys));
-const readLocal=async()=>core.records(await core.normalizeCourses(app.read(core.keys)));
+const readSnapshot=()=>app.read(core.keys);
+const normalize=async snapshot=>core.records(await core.normalizeCourses(snapshot));
+const readLocal=()=>normalize(readSnapshot());
 const create=(key,value,parents=[])=>({id:crypto.randomUUID(),key,value,parents});
+function checkWrites(ops){
+ const encoder=new TextEncoder();
+ for(const op of ops){
+  if(encoder.encode(JSON.stringify(op.value)).length>250000||encoder.encode(op.key).length>6000)
+   throw new Error("记录超过同步大小限制："+(op.value?.title||JSON.parse(op.key)[1])+"。请先备份，再缩短或拆分这条记录。");
+ }
+}
 const login=byId("syncLogin");
 const migration=byId("syncMigration");
 const conflicts=byId("syncConflicts");
@@ -30,13 +38,21 @@ function current(){
  return core.heads([...new Map([...remote.values(),...state.pending].map(op=>[op.id,op])).values()]);
 }
 async function recordLocalEdits(){
- const next=await readLocal();
- const changes=core.differences(new Map(state.baseline),next);
- if(!changes.length)return;
- const pending=changes.map(([key,value])=>create(key,value,state.heads[key]||[]));
- const heads={...state.heads};
+ const snapshot=readSnapshot(),previous=state,generation=accountGeneration;
+ const next=await normalize(snapshot);
+ if(generation!==accountGeneration)return null;
+ if(!core.equal(previous,load())||!core.equal(snapshot,readSnapshot())){
+  requestSync();
+  return null;
+ }
+ const changes=core.differences(new Map(previous.baseline),next);
+ if(!changes.length)return snapshot;
+ const pending=changes.map(([key,value])=>create(key,value,previous.heads[key]||[]));
+ checkWrites(pending);
+ const heads={...previous.heads};
  for(const op of pending)heads[op.key]=[op.id];
- persist({...state,baseline:[...next],heads,pending:state.pending.concat(pending)});
+ persist({...previous,baseline:[...next],heads,pending:previous.pending.concat(pending)});
+ return snapshot;
 }
 function conflictList(groups){
  const unresolved=[...groups].filter(([,versions])=>core.alternatives(versions).length>1);
@@ -59,10 +75,12 @@ function conflictList(groups){
     try{
      if(!enabled)return;
      state=load();
-     await recordLocalEdits();
+     if(!await recordLocalEdits())return;
      const now=current().get(key);
      if(!now||!core.equal(now.map(v=>v.id),versions.map(v=>v.id))){requestSync();return}
-     persist({...state,pending:state.pending.concat(create(key,option.value,versions.map(v=>v.id)))});
+     const choice=create(key,option.value,versions.map(v=>v.id));
+     checkWrites([choice]);
+     persist({...state,pending:state.pending.concat(choice)});
      requestSync();
     }catch(error){showError(error)}
    }).catch(showError);
@@ -120,10 +138,13 @@ async function reconcile(){
  try{
   state=load();
   if(!state||state.uid!==uid){enabled=false;status("这台设备的同步已停用。");return}
-  await recordLocalEdits();
+  if(!await recordLocalEdits())return;
   if(!navigator.onLine){status("离线 · 本机已保存 · 待同步 "+state.pending.length+" 项");return}
-  if(!serverConfirmed||Date.now()-lastPoll>=pollInterval)
+  const pendingIds=new Set(state.pending.map(op=>op.id));
+  const missingHeads=()=>Object.values(state.heads).flat().some(id=>!remote.has(id)&&!pendingIds.has(id));
+  if(!serverConfirmed||missingHeads()||Date.now()-lastPoll>=pollInterval)
    if(!await pull(uid,generation))return;
+  if(missingHeads())throw new Error("已知版本尚未从云端读回，请稍后重试");
   for(const op of [...state.pending]){
    if(!enabled||generation!==accountGeneration)return;
    const ref=api.doc(db,"syncUsers",uid,"changes",op.id);
@@ -137,17 +158,21 @@ async function reconcile(){
    persist({...state,pending:state.pending.filter(item=>item.id!==op.id)});
   }
   if(!serverConfirmed)return;
-  await recordLocalEdits();
+  const localSnapshot=await recordLocalEdits();
+  if(!localSnapshot||generation!==accountGeneration)return;
   if(state.pending.length){requestSync();return}
   const groups=current();
   const snapshot=core.project(groups,app.today());
   const next=core.records(snapshot);
-  if(core.differences(readRaw(),next).length&&!app.apply(snapshot)){
+  if(!core.equal(state,load())||!core.equal(localSnapshot,readSnapshot())){
+   requestSync();
+   return;
+  }
+  if(core.differences(core.records(localSnapshot),next).length&&!app.apply(snapshot)){
    status("已收到其他设备的更新 · 完成当前编辑后应用");
    return;
   }
-  const latest=await readLocal();
-  const updated={...state,baseline:[...latest],heads:Object.fromEntries([...groups].map(([key,versions])=>[key,versions.map(v=>v.id)]))};
+  const updated={...state,baseline:[...next],heads:Object.fromEntries([...groups].map(([key,versions])=>[key,versions.map(v=>v.id)]))};
   if(!core.equal(updated,state))persist(updated);
   conflictList(groups);
   const count=conflicts.childElementCount;
@@ -182,14 +207,19 @@ async function confirmMigration(){
   if(load()){status("此浏览器已在另一标签页启用同步。请刷新页面。");return}
   const generation=accountGeneration;
   if(!await pull(user.uid,generation))return;
-  const local=await readLocal();
-  if(core.differences(preview.local,local).length||!core.equal(preview.remote,[...remote.keys()].sort())){
+  const snapshot=readSnapshot();
+  const local=await normalize(snapshot);
+  if(generation!==accountGeneration)return;
+  if(!core.equal(snapshot,readSnapshot())||core.differences(preview.local,local).length||!core.equal(preview.remote,[...remote.keys()].sort())){
    byId("syncBackupConfirmed").checked=false;await prepareMigration();status("记录有变化，请重新备份并核对预览。");return;
   }
   const groups=core.heads([...remote.values()]);
   const pending=[...local].flatMap(([key,value])=>
    (groups.get(key)||[]).some(op=>core.equal(value,op.value))?[]:[create(key,value)]);
-  persist({uid:user.uid,baseline:[...local],heads:{},pending});
+  checkWrites(pending);
+  const heads=Object.fromEntries([...groups].map(([key,versions])=>[key,versions.map(op=>op.id)]));
+  for(const op of pending)heads[op.key]=[op.id];
+  persist({uid:user.uid,baseline:[...local],heads,pending});
   enabled=true;migration.hidden=true;requestSync();
  }catch(error){showError(error)}
 }
@@ -290,9 +320,13 @@ async function start(){
   byId("syncConfirm").onclick=()=>withLock(confirmMigration).catch(showError);
   byId("syncBackup").onclick=()=>app.backup();
   byId("syncArchive").onclick=()=>withLock(async()=>{
-   const local=load();
-   if(enabled){state=local;await recordLocalEdits();}
-   const backupState=enabled?state:local;
+   const generation=accountGeneration;
+   if(enabled){
+    state=load();
+    try{await recordLocalEdits()}catch(error){showError(error)}
+   }
+   if(generation!==accountGeneration)return;
+   const backupState=load();
    app.backup({version:1,operations:[...remote.values()],pending:backupState?.uid===user?.uid?backupState.pending:[]});
   }).catch(showError);
   byId("syncClearLocal").onclick=()=>withLock(async()=>{

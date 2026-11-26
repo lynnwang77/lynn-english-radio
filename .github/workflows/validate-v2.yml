@@ -7,6 +7,9 @@ on:
     paths:
       - "index.html"
       - "v2-*.js"
+      - "sync-config.js"
+      - "firebase.json"
+      - "firestore.rules"
       - "unified-content.js"
       - "tools/**"
       - "v2.css"
