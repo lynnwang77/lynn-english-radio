@@ -104,7 +104,7 @@ async function seedAuth(){
   assert.ok(await cloudCount());
   await a.locator("#syncDeletePassword").fill(pass);
   await chooseDialog(a,"#syncDeleteAccount",true);
-  await a.locator("#syncStatus").filter({hasText:"云端测试账户已删除"}).waitFor({timeout:30000});
+  await a.locator("#syncStatus").filter({hasText:"云端账户已删除"}).waitFor({timeout:30000});
   assert.equal(await cloudCount(),0);
   assert.ok(await a.evaluate(key=>localStorage.getItem(key),wordStore));
   console.log("Firebase emulator browser test: login, pre-confirmation isolation, backup, two-device merge, conflicts, offline retry, second tab, export, local clearing and cloud account deletion passed");
