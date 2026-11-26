@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /syncUsers/{uid}/changes/{id} {
+      function owner() {
+        return request.auth != null && request.auth.uid == uid
+          && request.auth.token.email_verified == true;
+      }
+      allow read: if owner();
+      allow create: if owner()
+        && id.matches('^[a-f0-9-]{36}$')
+        && request.resource.data.keys().hasOnly(['id','key','parents','payload'])
+        && request.resource.data.id == id
+        && request.resource.data.key is string && request.resource.data.key.size() <= 6000
+        && request.resource.data.parents is list && request.resource.data.parents.size() <= 100
+        && request.resource.data.payload is string && request.resource.data.payload.size() <= 250000;
+    }
+  }
+}

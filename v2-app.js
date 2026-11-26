@@ -392,7 +392,7 @@ function exportBackup(){
  legacy.favorites=JSON.stringify([...favorites]);
  const backup={app:"lynn-english-radio",version:2,exportedAt:new Date().toISOString(),legacy,
   v2:{importedTracks:imported,progress,trackStatus:overrides},
-  unified:{words:loadWords(),history}};
+  unified:{words:loadWords(),history,today:get(DAY_KEY,null)}};
  const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
  const url=URL.createObjectURL(blob),a=document.createElement("a");
  a.href=url;a.download="lynn-english-radio-backup-"+Core.dayStamp()+".json";
@@ -503,11 +503,19 @@ async function restoreBackup(file){
   let storedFav=[];try{storedFav=JSON.parse(data.legacy?.favorites||"[]")}catch(e){}
   const mergedFavorites=new Set(favorites);
   if(Array.isArray(storedFav))for(const f of storedFav)if(typeof f==="string")mergedFavorites.add(f);
+  const incomingDay=data.unified?.today;
+  const day=Core.dayStamp();
+  const validIds=new Set(matchingEntries.map(it=>it.id));
+  const dailyFields=["due","fresh"];
+  const restoreToday=incomingDay?.day===day&&dailyFields.every(field=>
+   Array.isArray(incomingDay[field])&&incomingDay[field].length<=20&&incomingDay[field].every(id=>validIds.has(id)))&&
+   !Object.values(progress).some(item=>item.lastReviewed===day);
   if(!window.confirm("Merge this backup into this browser? Existing lessons and favorites will be kept."))return;
   if(!saveRestore({[STORAGE.imported]:mergedTracks,[STORAGE.progress]:mergedProgress,
-    [STORAGE.overrides]:mergedStatus,favorites:[...mergedFavorites],[STORAGE.words]:mergedWords,[STORAGE.history]:mergedHistory}))return;
+    [STORAGE.overrides]:mergedStatus,favorites:[...mergedFavorites],[STORAGE.words]:mergedWords,[STORAGE.history]:mergedHistory,
+    ...(restoreToday?{[DAY_KEY]:incomingDay}:{})}))return;
   imported=mergedTracks;progress=mergedProgress;overrides=mergedStatus;favorites=mergedFavorites;
-  words=mergedWords;history=mergedHistory;render();
+  words=mergedWords;history=mergedHistory;if(restoreToday)assignment=incomingDay;render();
   notice("Backup merged: "+parsed.tracks.length+" new lessons and compatible review progress restored.");
  }catch(e){notice("Restore failed: "+e.message)}
 }
@@ -731,5 +739,20 @@ window.addEventListener?.("storage",event=>{
  if(editingWord&&!words.some(w=>w.id===editingWord&&!w.deleted))editingWord="";
  render();
 });
+window.LynnSyncApp={
+ read(keys){
+  return Object.fromEntries(keys.map(key=>[key,JSON.parse(localStorage.getItem(key))]));
+ },
+ apply(snapshot){
+  // Let an active form finish before rerendering the live content.
+  if(document.activeElement?.matches("#content textarea, #content input, #content select"))return false;
+  if(!saveRestore(snapshot))throw new Error("Local storage could not be updated.");
+  assignment=get(DAY_KEY,null);
+  window.dispatchEvent(new StorageEvent("storage",{key:null}));
+  return true;
+ },
+ backup:exportBackup,
+ today:Core.dayStamp
+};
 render();notice("Ready.");
 })();
